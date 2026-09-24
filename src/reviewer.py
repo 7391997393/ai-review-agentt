@@ -37,14 +37,39 @@ async def review_all_categories(
 
     combined_prompt = f"""
 {category_instructions}
-
-Return only valid JSON matching the ReviewResult schema.
-Do not use Markdown.
-Do not wrap the JSON in ```json or ``` code fences.
-
+ 
+Return the result as ONE ReviewResult object.
+ 
+The response MUST have this exact structure:
+ 
+{{
+    "findings": [
+        {{
+            "category": "security",
+            "severity": "high",
+            "file": "example.py",
+            "line": 10,
+            "title": "Short issue title",
+            "description": "Explain the issue.",
+            "recommendation": "Explain how to fix it.",
+            "confidence": 0.90
+        }}
+    ]
+}}
+ 
+IMPORTANT:
+- The root response MUST be an object containing "findings".
+- Do NOT return a list directly.
+- "severity" must be one of: critical, high, medium, low, info.
+- "confidence" must be a number from 0 to 1.
+- Every finding must contain category, severity, file, line, title,
+  description, recommendation, and confidence.
+- Do not use Markdown or code fences.
+ 
 Pull Request context:
 {context}
 """
+ 
 
     result = await structured_model.ainvoke(combined_prompt)
     return result.findings

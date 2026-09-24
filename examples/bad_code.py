@@ -70,3 +70,8 @@ def search_users(users, username):
  
     # Test/validation issue: no validation for username
     return results
+
+def calculate_total(price, quantity):
+    total = price * quantity
+    print("Total:", total)
+    return total

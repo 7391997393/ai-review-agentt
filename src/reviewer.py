@@ -9,11 +9,13 @@ CATEGORIES = ["security", "standards", "tests", "performance"]
 
 
 def build_model(settings: Settings) -> ChatOpenAI:
+
     kwargs = {
-        "model": settings.openai_model,
-        "temperature": 0,
-        "api_key": settings.openai_api_key,
-    }
+    "model": settings.openai_model,
+    "temperature": 0,
+    "api_key": settings.openai_api_key,
+    "max_tokens": 2048,
+}
 
     if settings.openai_base_url:
         kwargs["base_url"] = settings.openai_base_url

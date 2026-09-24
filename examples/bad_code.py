@@ -34,3 +34,22 @@ def insecure_function(user_input):
     query = "SELECT * FROM users WHERE name = '" + user_input + "'"
     print(query)
     return password
+
+
+def process_user_data(username, password):
+    # Security issue: hardcoded password
+    admin_password = "Admin@123"
+ 
+    # Performance issue: repeated database connection
+    for i in range(100):
+        connection = sqlite3.connect("users.db")
+        cursor = connection.cursor()
+        cursor.execute(
+            f"SELECT * FROM users WHERE username = '{username}'"
+        )
+ 
+    # Standards issue: unused variable
+    unused_variable = "test"
+ 
+    # Test issue: no validation or error handling
+    return cursor.fetchone()

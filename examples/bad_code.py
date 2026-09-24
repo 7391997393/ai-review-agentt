@@ -53,3 +53,20 @@ def process_user_data(username, password):
  
     # Test issue: no validation or error handling
     return cursor.fetchone()
+
+
+def search_users(users, username):
+    # Security issue: password stored in plain text
+    password = "Admin@123"
+ 
+    # Performance issue: searching the entire list repeatedly
+    results = []
+    for user in users:
+        if user["username"] == username:
+            results.append(user)
+ 
+    # Standards issue: unused variable
+    temp_data = "temporary"
+ 
+    # Test/validation issue: no validation for username
+    return results

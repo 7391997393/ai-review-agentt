@@ -38,7 +38,9 @@ async def review_all_categories(
     combined_prompt = f"""
 {category_instructions}
 
-Return only the structured ReviewResult requested by the application.
+Return only valid JSON matching the ReviewResult schema.
+Do not use Markdown.
+Do not wrap the JSON in ```json or ``` code fences.
 
 Pull Request context:
 {context}

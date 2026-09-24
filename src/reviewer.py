@@ -14,8 +14,8 @@ def build_model(settings: Settings) -> ChatOpenAI:
     "model": settings.openai_model,
     "temperature": 0,
     "api_key": settings.openai_api_key,
-    "max_tokens": 2048,
-}
+    "max_tokens": 4096,
+} 
 
     if settings.openai_base_url:
         kwargs["base_url"] = settings.openai_base_url

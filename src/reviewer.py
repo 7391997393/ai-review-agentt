@@ -39,6 +39,13 @@ async def review_all_categories(
 {category_instructions}
 
 Return only valid JSON matching the ReviewResult schema.
+ 
+Every finding MUST contain these fields:
+category, severity, file, line, title, description, recommendation, confidence.
+ 
+Do not omit any field.
+If a field is not applicable, provide a short value instead of omitting it.
+ 
 Do not use Markdown.
 Do not wrap the JSON in ```json or ``` code fences.
 

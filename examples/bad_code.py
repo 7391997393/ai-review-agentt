@@ -28,3 +28,9 @@ def calculate_total(items):
     for item in items:
         total += item["price"]
     return total
+
+def insecure_function(user_input):
+    password = "admin123"
+    query = "SELECT * FROM users WHERE name = '" + user_input + "'"
+    print(query)
+    return password

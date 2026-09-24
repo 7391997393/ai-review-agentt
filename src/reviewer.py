@@ -9,11 +9,13 @@ CATEGORIES = ["security", "standards", "tests", "performance"]
 
 
 def build_model(settings: Settings) -> ChatOpenAI:
+
     kwargs = {
-        "model": settings.openai_model,
-        "temperature": 0,
-        "api_key": settings.openai_api_key,
-    }
+    "model": settings.openai_model,
+    "temperature": 0,
+    "api_key": settings.openai_api_key,
+    "max_tokens": 4096,
+} 
 
     if settings.openai_base_url:
         kwargs["base_url"] = settings.openai_base_url
@@ -36,7 +38,9 @@ async def review_all_categories(
     combined_prompt = f"""
 {category_instructions}
 
-Return only the structured ReviewResult requested by the application.
+Return only valid JSON matching the ReviewResult schema.
+Do not use Markdown.
+Do not wrap the JSON in ```json or ``` code fences.
 
 Pull Request context:
 {context}

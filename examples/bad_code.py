@@ -28,3 +28,45 @@ def calculate_total(items):
     for item in items:
         total += item["price"]
     return total
+
+def insecure_function(user_input):
+    password = "admin123"
+    query = "SELECT * FROM users WHERE name = '" + user_input + "'"
+    print(query)
+    return password
+
+
+def process_user_data(username, password):
+    # Security issue: hardcoded password
+    admin_password = "Admin@123"
+ 
+    # Performance issue: repeated database connection
+    for i in range(100):
+        connection = sqlite3.connect("users.db")
+        cursor = connection.cursor()
+        cursor.execute(
+            f"SELECT * FROM users WHERE username = '{username}'"
+        )
+ 
+    # Standards issue: unused variable
+    unused_variable = "test"
+ 
+    # Test issue: no validation or error handling
+    return cursor.fetchone()
+
+
+def search_users(users, username):
+    # Security issue: password stored in plain text
+    password = "Admin@123"
+ 
+    # Performance issue: searching the entire list repeatedly
+    results = []
+    for user in users:
+        if user["username"] == username:
+            results.append(user)
+ 
+    # Standards issue: unused variable
+    temp_data = "temporary"
+ 
+    # Test/validation issue: no validation for username
+    return results

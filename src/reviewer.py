@@ -71,5 +71,9 @@ Pull Request context:
 """
  
 
-    result = await structured_model.ainvoke(combined_prompt)
-    return result.findings
+    try:
+        result = await structured_model.ainvoke(combined_prompt)
+    except Exception as exc:
+        print(f"Ai structured response failed: {exc}")
+    raise
+

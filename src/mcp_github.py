@@ -147,7 +147,7 @@ class GitHubMCPClient:
         if event:
             arguments["event"] = event
             return await self.call(
-              "pull_request_review_write",
+            "pull_request_review_write",
                 arguments,
                 )
 

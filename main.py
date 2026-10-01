@@ -51,22 +51,66 @@ async def async_main() -> None:
         graph = build_graph(settings)
         result = await graph.ainvoke({"context": context})
 
-        review_body = format_review(
-            owner=settings.github_owner,
-            repo=settings.github_repo,
-            pull_number=pr_number,
-            findings=result["findings"],
-        )
+        findings = result["findings"]
 
+        # 1. Create a pending review
         await github.create_review(
+        owner=settings.github_owner,
+        repo=settings.github_repo,
+        pull_number=pr_number,
+        body="AI Code Review",
+        event="", # Create a pending review
+        )
+       
+        # 2. Add inline comments for findings with file and line information
+        for finding in findings:
+            if isinstance(finding, dict):
+               path = finding.get("file")
+               line = finding.get("line")
+               title = finding.get("title", "Code review finding")
+               description = finding.get("description", "")
+               recommendation = finding.get("recommendation", "")
+            else:
+               path = getattr(finding, "file", None)
+               line = getattr(finding, "line", None)
+               title = getattr(finding, "title", "Code review finding")
+               description = getattr(finding, "description", "")
+               recommendation = getattr(finding, "recommendation", "")
+       
+            if not path or not isinstance(line, int):
+               print(f"Skipping inline comment without a valid file/line: {title}")
+               continue
+              
+            comment = (
+               f"**{title}**\n\n"
+               f"{description}\n\n"
+               f"**Recommendation:** {recommendation}"
+            )
+    
+            await github.add_inline_comment(
             owner=settings.github_owner,
             repo=settings.github_repo,
             pull_number=pr_number,
-            body=review_body,
-            event="COMMENT",
+            path=path,
+            line=line,
+            body=comment,
+            )
+       
+        # 3. Submit the pending review
+            await github.call(
+            "pull_request_review_write",
+            {
+            "owner": settings.github_owner,
+            "repo": settings.github_repo,
+            "pullNumber": pr_number,
+            "method": "submit_pending",
+            "event": "COMMENT",
+            },
         )
+       
+        print("AI inline review submitted.")
 
-        print(review_body)
+        
     finally:
         await github.close()
 

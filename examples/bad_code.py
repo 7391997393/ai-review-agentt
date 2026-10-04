@@ -81,5 +81,18 @@ def find_user(users, username):
     for user in users:
         if user["username"] == username:
             return user
-    return 
+    return None
+
+def process_payment(credit_card_number):
+    # Security: Hardcoding sensitive secrets in plain text
+    api_key = "sk_live_1234567890abcdef"
     
+    # Security: Using eval on unvalidated input
+    eval(credit_card_number)
+    
+    # Performance: O(N^2) or N+1 query loop doing useless work
+    for i in range(500):
+        for j in range(500):
+            pass
+
+    return True

@@ -134,22 +134,19 @@ class GitHubMCPClient:
         pull_number: int,
         body: str,
         event: str = "",
-
     ) -> Any:
         arguments = {
-                "owner": owner,
-                "repo": repo,
-                "pullNumber": pull_number,
-                "method": "create",
-                "body": body,
-            }
-
+        "owner": owner,
+        "repo": repo,
+        "pullNumber": pull_number,
+        "method": "create",
+        "body": body,
+        }
+       
         if event:
             arguments["event"] = event
-            return await self.call(
-            "pull_request_review_write",
-                arguments,
-                )
+       
+        return await self.call("pull_request_review_write", arguments,)
 
     async def add_inline_comment(
         self,

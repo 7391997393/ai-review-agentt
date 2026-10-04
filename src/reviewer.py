@@ -61,3 +61,5 @@ Pull Request context:
     raise
 
  return result.findings
+
+ 

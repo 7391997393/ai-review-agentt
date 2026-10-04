@@ -119,20 +119,22 @@ async def async_main() -> None:
                 f"**Recommendation:** {recommendation}"
             )
 
-            response = await github.add_inline_comment(
-                owner=settings.github_owner,
-                repo=settings.github_repo,
-                pull_number=pr_number,
-                path=path,
-                line=line,
-                body=comment,
-            )
-
-            print(
-                f"Inline comment response for "
-                f"{path}:{line}: {response}"
-            )
-            added_comments += 1
+            try:
+                response = await github.add_inline_comment(
+                    owner=settings.github_owner,
+                    repo=settings.github_repo,
+                    pull_number=pr_number,
+                    path=path,
+                    line=line,
+                    body=comment,
+                )
+                print(
+                    f"Inline comment response for "
+                    f"{path}:{line}: {response}"
+                )
+                added_comments += 1
+            except Exception as e:
+                print(f"Failed to add inline comment on {path}:{line}. Error: {e}")
 
         print(f"Inline comment requests sent: {added_comments}")
 

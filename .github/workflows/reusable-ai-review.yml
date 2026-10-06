@@ -1,0 +1,40 @@
+name: Reusable AI Code Review
+ 
+on:
+  workflow_call:
+ 
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+ 
+    permissions:
+      contents: read
+      pull-requests: write
+ 
+    steps:
+      - name: Checkout AI Review Agent
+        uses: actions/checkout@v4
+        with:
+          repository: 7391997393/ai-review-agentt
+          ref: main
+ 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+ 
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+ 
+      - name: Run AI Code Review
+        env:
+          CG_API_KEY: ${{ secrets.CG_API_KEY }}
+          CG_MODEL: ${{ vars.CG_MODEL }}
+          CG_BASE_URL: ${{ vars.CG_BASE_URL }}
+ 
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+ 
+        run: python main.py

@@ -46,6 +46,8 @@ recommendation, and confidence.
 Rules:
 - severity must be critical, high, medium, low, or info.
 - confidence must be a number from 0 to 1.
+- line MUST be a single integer (e.g. 42), or null if the finding is general. Do NOT use line ranges.
+- file MUST be a string representing the file path, or null if the finding is general.
 - Return structured data, not Markdown or code fences.
 - Use actual changed file paths and relevant line numbers.
 - If no issues are found, return an empty findings array.

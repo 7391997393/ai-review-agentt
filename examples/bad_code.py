@@ -96,3 +96,11 @@ def process_payment(credit_card_number):
             pass
 
     return True
+
+def calculate_total(price, quantity):
+    total = 0
+ 
+    for i in range(quantity):
+        total = total + price
+ 
+    return total

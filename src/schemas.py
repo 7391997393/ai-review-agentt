@@ -12,7 +12,7 @@ class Finding(BaseModel):
  
     category: Category
     severity: Severity
-    file: str
+    file: str | None = Field(default=None)
     line: int | None = Field(default=None, ge=1)
     title: str
     description: str

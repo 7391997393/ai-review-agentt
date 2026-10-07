@@ -18,9 +18,6 @@ class GitHubMCPClient:
         self.session: ClientSession | None = None
  
     async def connect(self) -> None:
-        # Locally, set GITHUB_MCP_COMMAND to the downloaded
-        # github-mcp-server executable. GitHub Actions can continue using
-        # Docker on the Ubuntu runner.
         command = os.getenv("GITHUB_MCP_COMMAND", "docker")
  
         if command == "docker":
@@ -145,8 +142,9 @@ class GitHubMCPClient:
         repo: str,
         pull_number: int,
         body: str,
-        event: str = "COMMENT",
     ) -> Any:
+        """Create a pending review."""
+ 
         return await self.call(
             "pull_request_review_write",
             {
@@ -155,7 +153,6 @@ class GitHubMCPClient:
                 "pullNumber": pull_number,
                 "method": "create",
                 "body": body,
-                "event": event,
             },
         )
  
@@ -168,6 +165,8 @@ class GitHubMCPClient:
         line: int,
         body: str,
     ) -> Any:
+        """Add an inline comment to the current pending review."""
+ 
         return await self.call(
             "add_comment_to_pending_review",
             {
@@ -178,6 +177,27 @@ class GitHubMCPClient:
                 "line": line,
                 "side": "RIGHT",
                 "subjectType": "LINE",
+                "body": body,
+            },
+        )
+ 
+    async def submit_review(
+        self,
+        owner: str,
+        repo: str,
+        pull_number: int,
+        body: str,
+    ) -> Any:
+        """Submit the pending review as a normal comment review."""
+ 
+        return await self.call(
+            "pull_request_review_write",
+            {
+                "owner": owner,
+                "repo": repo,
+                "pullNumber": pull_number,
+                "method": "submit_pending",
+                "event": "COMMENT",
                 "body": body,
             },
         )

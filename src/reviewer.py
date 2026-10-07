@@ -302,8 +302,19 @@ critical, high, medium, low, info
  
 confidence MUST be a number from 0 to 1.
  
-line MUST be the changed source-code line number when the finding
-can be associated with a changed line. Otherwise use null.
+line MUST be the EXACT RIGHT-SIDE line number of the changed line
+shown in the Pull Request diff.
+ 
+Use only a line number that is actually marked as added/changed in
+the supplied diff.
+ 
+Do NOT use:
+- the old/base file line number
+- a nearby unchanged line
+- a hunk header line
+- an approximate line number
+ 
+If you cannot determine the exact changed line from the diff, use null.
  
 Only report concrete findings supported by the supplied Pull Request
 context. Do not invent issues.

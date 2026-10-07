@@ -1,98 +1,5 @@
 import json
 import re
- 
-from langchain_openai import ChatOpenAI
- 
-from src.config import Settings
-from src.prompts import build_prompt
-from src.schemas import ReviewResult
- 
-CATEGORIES = ["security", "standards", "tests", "performance"]
- 
- 
-def build_model(settings: Settings) -> ChatOpenAI:
-    kwargs = {
-        "model": settings.openai_model,
-        "temperature": 0,
-        "api_key": settings.openai_api_key,
-        "max_tokens": 1500,
-    }
- 
-    if settings.openai_base_url:
-        kwargs["base_url"] = settings.openai_base_url
- 
-    return ChatOpenAI(**kwargs)
- 
- 
-def extract_json(text: str) -> str:
-    """Extract JSON from raw output or Markdown fenced JSON."""
-    text = text.strip()
- 
-    fenced = re.search(
-        r"```(?:json)?\s*(\{.*?\})\s*```",
-        text,
-        re.DOTALL,
-    )
- 
-    if fenced:
-        return fenced.group(1)
- 
-    start = text.find("{")
-    end = text.rfind("}")
- 
-    if start != -1 and end != -1 and end > start:
-        return text[start:end + 1]
- 
-    return text
- 
- 
-async def review_all_categories(
-    settings: Settings,
-    context: str,
-) -> list:
-    model = build_model(settings)
- 
-    category_instructions = "\n\n".join(
-        build_prompt(category, "").strip()
-        for category in CATEGORIES
-    )
- 
-    combined_prompt = f"""
-{category_instructions}
- 
-Return ONLY valid JSON.
-Do not use Markdown.
-Do not wrap the JSON in ```json```.
- 
-The JSON must follow this structure:
- 
-{{
-  "findings": []
-}}
- 
-Pull Request context:
-{context}
-"""
- 
-    response = await model.ainvoke(combined_prompt)
- 
-    content = response.content
- 
-    if isinstance(content, list):
-        content = "".join(
-            item.get("text", "") if isinstance(item, dict) else str(item)
-            for item in content
-        )
- 
-    json_text = extract_json(str(content))
- 
-    data = json.loads(json_text)
-    result = ReviewResult.model_validate(data)
- 
-    return result.findings
- 
-import json
-import re
 from typing import Any
  
 from langchain_openai import ChatOpenAI
@@ -106,8 +13,6 @@ CATEGORIES = ["security", "standards", "tests", "performance"]
  
  
 def build_model(settings: Settings) -> ChatOpenAI:
-    """Create the Capgemini Generative Engine client."""
- 
     kwargs = {
         "model": settings.openai_model,
         "temperature": 0,
@@ -133,7 +38,6 @@ def extract_json(text: str) -> str:
  
     text = text.strip()
  
-    # Remove Markdown code fences if present.
     text = re.sub(
         r"^```(?:json)?\s*",
         "",
@@ -159,14 +63,6 @@ def extract_json(text: str) -> str:
  
  
 def normalize_finding(finding: Any) -> dict:
-    """
-    Normalize an individual AI finding so it matches the Finding schema.
- 
-    The AI may occasionally omit optional-looking information even though
-    the application schema requires it. We provide safe defaults rather
-    than allowing the complete review to fail.
-    """
- 
     if not isinstance(finding, dict):
         return {
             "category": "standards",
@@ -180,10 +76,12 @@ def normalize_finding(finding: Any) -> dict:
         }
  
     category = finding.get("category", "standards")
+ 
     if category not in CATEGORIES:
         category = "standards"
  
     severity = finding.get("severity", "medium")
+ 
     if severity not in {
         "critical",
         "high",
@@ -195,9 +93,9 @@ def normalize_finding(finding: Any) -> dict:
  
     line = finding.get("line")
  
-    # Convert numeric line values safely.
     if isinstance(line, str):
         line = line.strip()
+ 
         if line.isdigit():
             line = int(line)
         else:
@@ -249,7 +147,6 @@ async def review_all_categories(
     settings: Settings,
     context: str,
 ) -> list:
-    """Run one AI review covering all four review categories."""
  
     model = build_model(settings)
  
@@ -284,7 +181,6 @@ The JSON MUST have exactly this top-level structure:
 }}
  
 Every finding MUST contain all of these fields:
- 
 category
 severity
 file
@@ -302,28 +198,14 @@ critical, high, medium, low, info
  
 confidence MUST be a number from 0 to 1.
  
-line MUST be the EXACT RIGHT-SIDE line number of the changed line
-shown in the Pull Request diff.
- 
-Use only a line number that is actually marked as added/changed in
-the supplied diff.
- 
-Do NOT use:
-- the old/base file line number
-- a nearby unchanged line
-- a hunk header line
-- an approximate line number
- 
-If you cannot determine the exact changed line from the diff, use null.
+line MUST be the changed source-code line number when the finding
+can be associated with a changed line. Otherwise use null.
  
 Only report concrete findings supported by the supplied Pull Request
 context. Do not invent issues.
  
 If there are no concrete findings, return:
- 
-{{
-  "findings": []
-}}
+{{ "findings": [] }}
  
 Do NOT return Markdown.
 Do NOT use ```json.
@@ -337,8 +219,6 @@ Pull Request context:
  
     content = response.content
  
-    # ChatOpenAI normally returns a string, but some providers can
-    # return structured content blocks.
     if isinstance(content, list):
         parts = []
  
@@ -350,17 +230,27 @@ Pull Request context:
  
         content = "".join(parts)
  
-    json_text = extract_json(str(content))
+    # Handle a response that does not contain a JSON object.
+    # The workflow stops safely instead of posting incomplete findings.
+    try:
+        json_text = extract_json(str(content))
+    except ValueError as exc:
+        raise RuntimeError(
+            "AI returned an invalid response. "
+            "The response did not contain valid JSON. "
+            "The review was stopped safely instead of posting incomplete findings."
+        ) from exc
  
+    # Handle malformed JSON after extracting the object.
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError as exc:
-        raise ValueError(
+        raise RuntimeError(
             f"AI returned invalid JSON: {exc}"
         ) from exc
  
     if not isinstance(data, dict):
-        raise ValueError(
+        raise RuntimeError(
             "AI response must be a JSON object."
         )
  
@@ -370,7 +260,7 @@ Pull Request context:
         raw_findings = []
  
     if not isinstance(raw_findings, list):
-        raise ValueError(
+        raise RuntimeError(
             "AI response 'findings' must be a list."
         )
  
@@ -379,7 +269,6 @@ Pull Request context:
         for finding in raw_findings
     ]
  
-    # Final Pydantic validation.
     result = ReviewResult.model_validate(
         {
             "findings": normalized_findings
@@ -387,4 +276,3 @@ Pull Request context:
     )
  
     return result.findings
- 

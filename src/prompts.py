@@ -26,9 +26,24 @@ secret exposure, unsafe deserialization, path traversal, command execution, inse
 cryptography, sensitive-data leakage, and unsafe handling of untrusted input.
 """,
     "standards": """
-Review for correctness, maintainability, readability, error handling, duplication,
-complexity, naming, and reasonable project coding standards. Do not nitpick formatting
-that an automated formatter should handle.
+Review for correctness, functional behavior, logical bugs, maintainability, readability,
+error handling, duplication, complexity, naming, and reasonable project coding standards.
+ 
+Specifically check for:
+- incorrect conditions or comparisons
+- incorrect boundary conditions
+- wrong return values
+- calculations that produce incorrect results
+- branches that handle a case incorrectly
+- logic that behaves differently from what the function name or surrounding code implies
+- unreachable or ineffective logic
+- incorrect assumptions about inputs
+- bugs that can produce incorrect application behavior
+ 
+A functional or logical bug is a valid finding even when the code is syntactically
+correct and well formatted.
+ 
+Do not nitpick formatting that an automated formatter should handle.
 """,
     "tests": """
 Review whether the changed behavior appears adequately tested.

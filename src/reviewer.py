@@ -91,3 +91,289 @@ Pull Request context:
  
     return result.findings
  
+import json
+import re
+from typing import Any
+ 
+from langchain_openai import ChatOpenAI
+ 
+from src.config import Settings
+from src.prompts import build_prompt
+from src.schemas import ReviewResult
+ 
+ 
+CATEGORIES = ["security", "standards", "tests", "performance"]
+ 
+ 
+def build_model(settings: Settings) -> ChatOpenAI:
+    """Create the Capgemini Generative Engine client."""
+ 
+    kwargs = {
+        "model": settings.openai_model,
+        "temperature": 0,
+        "api_key": settings.openai_api_key,
+        "max_tokens": 1500,
+    }
+ 
+    if settings.openai_base_url:
+        kwargs["base_url"] = settings.openai_base_url
+ 
+    return ChatOpenAI(**kwargs)
+ 
+ 
+def extract_json(text: str) -> str:
+    """
+    Extract a JSON object from the model response.
+ 
+    Handles:
+    - plain JSON
+    - ```json ... ```
+    - responses containing text before/after the JSON
+    """
+ 
+    text = text.strip()
+ 
+    # Remove Markdown code fences if present.
+    text = re.sub(
+        r"^```(?:json)?\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+ 
+    text = re.sub(
+        r"\s*```$",
+        "",
+        text,
+    )
+ 
+    start = text.find("{")
+    end = text.rfind("}")
+ 
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError(
+            "AI response did not contain a valid JSON object."
+        )
+ 
+    return text[start : end + 1]
+ 
+ 
+def normalize_finding(finding: Any) -> dict:
+    """
+    Normalize an individual AI finding so it matches the Finding schema.
+ 
+    The AI may occasionally omit optional-looking information even though
+    the application schema requires it. We provide safe defaults rather
+    than allowing the complete review to fail.
+    """
+ 
+    if not isinstance(finding, dict):
+        return {
+            "category": "standards",
+            "severity": "medium",
+            "file": "",
+            "line": None,
+            "title": "Code review finding",
+            "description": str(finding),
+            "recommendation": "Review and correct the identified issue.",
+            "confidence": 0.5,
+        }
+ 
+    category = finding.get("category", "standards")
+    if category not in CATEGORIES:
+        category = "standards"
+ 
+    severity = finding.get("severity", "medium")
+    if severity not in {
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "info",
+    }:
+        severity = "medium"
+ 
+    line = finding.get("line")
+ 
+    # Convert numeric line values safely.
+    if isinstance(line, str):
+        line = line.strip()
+        if line.isdigit():
+            line = int(line)
+        else:
+            line = None
+ 
+    if isinstance(line, float):
+        line = int(line)
+ 
+    if isinstance(line, int) and line < 1:
+        line = None
+ 
+    confidence = finding.get("confidence", 0.5)
+ 
+    try:
+        confidence = float(confidence)
+    except (TypeError, ValueError):
+        confidence = 0.5
+ 
+    confidence = max(0.0, min(1.0, confidence))
+ 
+    return {
+        "category": category,
+        "severity": severity,
+        "file": str(finding.get("file", "")),
+        "line": line,
+        "title": str(
+            finding.get(
+                "title",
+                "Code review finding",
+            )
+        ),
+        "description": str(
+            finding.get(
+                "description",
+                "Potential issue identified in the changed code.",
+            )
+        ),
+        "recommendation": str(
+            finding.get(
+                "recommendation",
+                "Review and correct the identified issue.",
+            )
+        ),
+        "confidence": confidence,
+    }
+ 
+ 
+async def review_all_categories(
+    settings: Settings,
+    context: str,
+) -> list:
+    """Run one AI review covering all four review categories."""
+ 
+    model = build_model(settings)
+ 
+    category_instructions = "\n\n".join(
+        build_prompt(category).strip()
+        for category in CATEGORIES
+    )
+ 
+    combined_prompt = f"""
+{category_instructions}
+ 
+You are producing the final structured result for an automated
+GitHub Pull Request code review.
+ 
+Return ONLY a JSON object.
+ 
+The JSON MUST have exactly this top-level structure:
+ 
+{{
+  "findings": [
+    {{
+      "category": "security",
+      "severity": "medium",
+      "file": "path/to/file",
+      "line": 10,
+      "title": "Short issue title",
+      "description": "Explain the concrete problem.",
+      "recommendation": "Explain the specific fix.",
+      "confidence": 0.95
+    }}
+  ]
+}}
+ 
+Every finding MUST contain all of these fields:
+ 
+category
+severity
+file
+line
+title
+description
+recommendation
+confidence
+ 
+Allowed category values:
+security, standards, tests, performance
+ 
+Allowed severity values:
+critical, high, medium, low, info
+ 
+confidence MUST be a number from 0 to 1.
+ 
+line MUST be the changed source-code line number when the finding
+can be associated with a changed line. Otherwise use null.
+ 
+Only report concrete findings supported by the supplied Pull Request
+context. Do not invent issues.
+ 
+If there are no concrete findings, return:
+ 
+{{
+  "findings": []
+}}
+ 
+Do NOT return Markdown.
+Do NOT use ```json.
+Do NOT add explanations before or after the JSON.
+ 
+Pull Request context:
+{context}
+"""
+ 
+    response = await model.ainvoke(combined_prompt)
+ 
+    content = response.content
+ 
+    # ChatOpenAI normally returns a string, but some providers can
+    # return structured content blocks.
+    if isinstance(content, list):
+        parts = []
+ 
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text", "")))
+            else:
+                parts.append(str(item))
+ 
+        content = "".join(parts)
+ 
+    json_text = extract_json(str(content))
+ 
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"AI returned invalid JSON: {exc}"
+        ) from exc
+ 
+    if not isinstance(data, dict):
+        raise ValueError(
+            "AI response must be a JSON object."
+        )
+ 
+    raw_findings = data.get("findings", [])
+ 
+    if raw_findings is None:
+        raw_findings = []
+ 
+    if not isinstance(raw_findings, list):
+        raise ValueError(
+            "AI response 'findings' must be a list."
+        )
+ 
+    normalized_findings = [
+        normalize_finding(finding)
+        for finding in raw_findings
+    ]
+ 
+    # Final Pydantic validation.
+    result = ReviewResult.model_validate(
+        {
+            "findings": normalized_findings
+        }
+    )
+ 
+    return result.findings
+ 

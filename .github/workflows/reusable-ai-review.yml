@@ -2,6 +2,16 @@ name: Reusable AI Code Review
  
 on:
   workflow_call:
+    inputs:
+      cg_model:
+        required: true
+        type: string
+      cg_base_url:
+        required: true
+        type: string
+    secrets:
+      cg_api_key:
+        required: true
  
 jobs:
   ai-review:
@@ -28,15 +38,11 @@ jobs:
  
       - name: Run AI Code Review
         env:
-          CG_API_KEY: ${{ secrets.CG_API_KEY }}
-          CG_MODEL: ${{ vars.CG_MODEL }}
-          CG_BASE_URL: ${{ vars.CG_BASE_URL }}
- 
+          CG_API_KEY: ${{ secrets.cg_api_key }}
+          CG_MODEL: ${{ inputs.cg_model }}
+          CG_BASE_URL: ${{ inputs.cg_base_url }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
- 
         run: python main.py
-
-        

@@ -146,3 +146,46 @@ class GitHubMCPClient:
                 "event": event,
             },
         )
+
+        async def create_review(
+            self,
+            owner: str,
+            repo: str,
+            pull_number: int,
+            body: str,
+            event: str = "COMMENT",
+        ) -> Any:
+            return await self.call(
+                "pull_request_review_write",
+                {
+                     "owner": owner,
+                     "repo": repo,
+                     "pullNumber": pull_number,
+                     "method": "create",
+                     "body": body,
+                },
+            )
+
+        async def add_inline_comment(
+            self,
+            owner: str,
+            repo: str,
+            pull_number: int,
+            path: str,
+            line: int,
+            body: str,
+        ) -> Any:
+            return await self.call(
+        "add_comment_to_pending_review",
+             {
+                "owner": owner,
+                "repo": repo,
+                "pullNumber": pull_number,
+                "path": path,
+                "line": line,
+                "side": "RIGHT",
+                "subjectType": "LINE",
+                "body": body,
+             },
+        )
+        

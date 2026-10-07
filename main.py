@@ -64,7 +64,28 @@ async def async_main() -> None:
             pull_number=pr_number,
             body=review_body,
             event="COMMENT",
-        )
+)
+
+# Add inline comments for findings that have a valid file and line
+        for finding in result["findings"]:
+            if finding.file and finding.line:
+                comment_body = (
+         f"**{finding.severity.upper()} — {finding.category.title()}**\n\n"
+                    f"**{finding.title}**\n\n"
+                    f"{finding.description}\n\n"
+                    f"**Recommendation:** {finding.recommendation}"
+         )
+        
+                await github.add_inline_comment(
+                   owner=settings.github_owner,
+                   repo=settings.github_repo,
+                   pull_number=pr_number,
+                   path=finding.file,
+                   line=finding.line,
+                   body=comment_body,
+                )
+
+
 
         print(review_body)
     finally:

@@ -13,6 +13,8 @@ def build_model(settings: Settings) -> ChatOpenAI:
         "model": settings.openai_model,
         "temperature": 0,
         "api_key": settings.openai_api_key,
+        "max_tokens" : 1500
+
     }
 
     if settings.openai_base_url:

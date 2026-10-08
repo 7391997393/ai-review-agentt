@@ -12,6 +12,7 @@ class Settings:
     github_token: str
     github_owner: str
     github_repo: str
+    max_review_context_chars: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -43,4 +44,7 @@ class Settings:
             github_token=required["GITHUB_TOKEN"],
             github_owner=os.getenv("GITHUB_OWNER", ""),
             github_repo=os.getenv("GITHUB_REPO", ""),
+            max_review_context_chars=int(
+                os.getenv("MAX_REVIEW_CONTEXT_CHARS", "120000")
+            ),
         )

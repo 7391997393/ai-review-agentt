@@ -126,15 +126,24 @@ class GitHubMCPClient:
             },
         )
 
-        return json.dumps(
-            {
-                "pull_request": pr,
-                "changed_files": changed_files,
-                "diff": diff,
-            },
-            indent=2,
-            default=str,
-        )
+        context = json.dumps(
+    {
+        "pull_request": pr,
+        "changed_files": changed_files,
+        "diff": diff,
+    },
+    indent=2,
+    default=str,
+)
+        max_chars = self.settings.max_review_context_chars
+
+        if len(context) > max_chars:
+            context = (
+                context[:max_chars]
+                + "\n\n[Review context truncated because the Pull Request is too large.]"
+            )
+
+        return context
 
     async def get_review_comments(
         self,

@@ -17,7 +17,7 @@ def build_model(settings: Settings) -> ChatOpenAI:
         "model": settings.openai_model,
         "temperature": 0,
         "api_key": settings.openai_api_key,
-        "max_tokens": 1500,
+        "max_tokens": 3000,
     }
  
     if settings.openai_base_url:
@@ -230,24 +230,73 @@ Pull Request context:
  
         content = "".join(parts)
  
-    # Handle a response that does not contain a JSON object.
-    # The workflow stops safely instead of posting incomplete findings.
     try:
         json_text = extract_json(str(content))
-    except ValueError as exc:
-        raise RuntimeError(
-            "AI returned an invalid response. "
-            "The response did not contain valid JSON. "
-            "The review was stopped safely instead of posting incomplete findings."
-        ) from exc
- 
-    # Handle malformed JSON after extracting the object.
-    try:
         data = json.loads(json_text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(
-            f"AI returned invalid JSON: {exc}"
-        ) from exc
+ 
+    except (ValueError, json.JSONDecodeError):
+        repair_prompt = f"""
+The following AI-generated response was supposed to be a JSON object
+for a GitHub Pull Request code review, but it is malformed.
+ 
+Repair it into valid JSON.
+ 
+Return ONLY valid JSON.
+Do not add Markdown.
+Do not add explanations.
+Do not remove valid findings.
+ 
+The required structure is:
+ 
+{{
+  "findings": [
+    {{
+      "category": "security",
+      "severity": "medium",
+      "file": "path/to/file",
+      "line": 10,
+      "title": "Short issue title",
+      "description": "Explain the concrete problem.",
+      "recommendation": "Explain the specific fix.",
+      "confidence": 0.95
+    }}
+  ]
+}}
+ 
+Allowed categories:
+security, standards, tests, performance
+ 
+Allowed severities:
+critical, high, medium, low, info
+ 
+The original malformed response is:
+ 
+{content}
+"""
+ 
+        repair_response = await model.ainvoke(repair_prompt)
+        repair_content = repair_response.content
+ 
+        if isinstance(repair_content, list):
+            parts = []
+ 
+            for item in repair_content:
+                if isinstance(item, dict):
+                    parts.append(str(item.get("text", "")))
+                else:
+                    parts.append(str(item))
+ 
+            repair_content = "".join(parts)
+ 
+        try:
+            json_text = extract_json(str(repair_content))
+            data = json.loads(json_text)
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                "AI returned an invalid response. "
+                "The response could not be repaired safely, "
+                "so the review was stopped instead of posting incomplete findings."
+            ) from exc
  
     if not isinstance(data, dict):
         raise RuntimeError(
@@ -276,3 +325,5 @@ Pull Request context:
     )
  
     return result.findings
+ 
+ 

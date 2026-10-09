@@ -116,6 +116,17 @@ async def async_main() -> None:
                         f"Review comments field '{key}' item keys:",
                         list(value[0].keys()),
                     )
+                    for thread in value[:5]:
+                        if isinstance(thread, dict):
+                            print(
+                                "Review thread details:",
+                                {
+                                    "id": thread.get("id"),
+                                    "is_resolved": thread.get("is_resolved"),
+                                    "is_outdated": thread.get("is_outdated"),
+                                },
+                            )
+
                 elif isinstance(value, dict):
                     print(
                         f"Review comments field '{key}' keys:",

@@ -164,6 +164,26 @@ class GitHubMCPClient:
             },
         )
 
+    async def resolve_thread(
+        self,
+        owner: str,
+        repo: str,
+        pull_number: int,
+        thread_id: str,
+    ) -> Any:
+        """Resolve an existing Pull Request review thread."""
+
+        return await self.call(
+            "pull_request_review_write",
+            {
+                "owner": owner,
+                "repo": repo,
+                "pullNumber": pull_number,
+                "method": "resolve_thread",
+                "threadId": thread_id,
+            },
+        )
+
     async def create_review(
         self,
         owner: str,
@@ -208,7 +228,6 @@ class GitHubMCPClient:
                 "body": body,
             },
         )
-
     async def submit_review(
         self,
         owner: str,

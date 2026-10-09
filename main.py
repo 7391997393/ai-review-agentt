@@ -98,6 +98,11 @@ async def async_main() -> None:
 
         existing_keys = extract_existing_comment_keys(existing_comments)
 
+        if isinstance(existing_comments, list) and existing_comments:
+            print("Review comment fields:", list(existing_comments[0].keys()))
+        else:
+            print("Review comments response type:", type(existing_comments).__name__)
+
         new_findings = []
 
         for finding in findings:

@@ -98,10 +98,34 @@ async def async_main() -> None:
 
         existing_keys = extract_existing_comment_keys(existing_comments)
 
-        if isinstance(existing_comments, list) and existing_comments:
-            print("Review comment fields:", list(existing_comments[0].keys()))
+        # Temporary diagnostic: print response field names only.
+        # Do not print review comment bodies or other sensitive content.
+        if isinstance(existing_comments, dict):
+            print(
+                "Review comments response keys:",
+                list(existing_comments.keys()),
+            )
+
+            for key, value in existing_comments.items():
+                if (
+                    isinstance(value, list)
+                    and value
+                    and isinstance(value[0], dict)
+                ):
+                    print(
+                        f"Review comments field '{key}' item keys:",
+                        list(value[0].keys()),
+                    )
+                elif isinstance(value, dict):
+                    print(
+                        f"Review comments field '{key}' keys:",
+                        list(value.keys()),
+                    )
         else:
-            print("Review comments response type:", type(existing_comments).__name__)
+            print(
+                "Review comments response type:",
+                type(existing_comments).__name__,
+            )
 
         new_findings = []
 

@@ -39,7 +39,7 @@ class GitHubMCPClient:
             args=args,
             env={
                 "GITHUB_PERSONAL_ACCESS_TOKEN": self.settings.github_token,
-                "GITHUB_TOOLSETS": "repos,pull_requests",
+                "GITHUB_TOOLSETS": "repos,pull_requests,issues",
             },
         )
 

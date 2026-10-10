@@ -12,6 +12,8 @@ on:
     secrets:
       cg_api_key:
         required: true
+      github_token:
+        required: true
  
 jobs:
   ai-review:
@@ -41,7 +43,7 @@ jobs:
           CG_API_KEY: ${{ secrets.cg_api_key }}
           CG_MODEL: ${{ inputs.cg_model }}
           CG_BASE_URL: ${{ inputs.cg_base_url }}
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.github_token }}
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

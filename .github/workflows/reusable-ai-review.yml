@@ -12,7 +12,7 @@ on:
     secrets:
       cg_api_key:
         required: true
-      github_token:
+      gh_pat:
         required: true
  
 jobs:

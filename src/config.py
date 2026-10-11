@@ -21,10 +21,17 @@ class Settings:
         using its OpenAI-compatible API.
         """
 
+        github_token = (
+            os.getenv("GITHUB_TOKEN")
+            or os.getenv("GH_PAT")
+            or os.getenv("GITHUB_PAT")
+            or ""
+        ).strip()
+
         required = {
             "CG_API_KEY": os.getenv("CG_API_KEY"),
             "CG_MODEL": os.getenv("CG_MODEL"),
-            "GITHUB_TOKEN": os.getenv("GITHUB_TOKEN"),
+            "GITHUB_TOKEN": github_token,
         }
 
         missing = [name for name, value in required.items() if not value]
@@ -41,11 +48,10 @@ class Settings:
                 "CG_BASE_URL",
                 "https://openai.generative.engine.capgemini.com/v1",
             ),
-            github_token=required["GITHUB_TOKEN"].strip(),
+            github_token=github_token,
             github_owner=os.getenv("GITHUB_OWNER", ""),
             github_repo=os.getenv("GITHUB_REPO", ""),
             max_review_context_chars=int(
                 os.getenv("MAX_REVIEW_CONTEXT_CHARS", "120000")
             ),
         )
-        

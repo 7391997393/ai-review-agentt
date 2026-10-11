@@ -69,6 +69,7 @@ class GitHubMCPClient:
             tool_name,
             arguments,
         )
+        print("DEBUG MCP RESPONSE:", result)
 
         if getattr(result, "structuredContent", None):
             return result.structuredContent

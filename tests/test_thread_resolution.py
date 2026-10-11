@@ -1,9 +1,10 @@
 import asyncio
-from unittest.mock import AsyncMock
- 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
- 
+
 from main import resolve_outdated_threads
+from src.mcp_github import GitHubMCPClient
  
 
 def test_resolves_outdated_unresolved_thread():
@@ -191,3 +192,68 @@ def test_handles_error_in_result_response():
     )
 
     assert resolved == []
+
+
+def test_get_review_threads_graphql():
+    settings = MagicMock()
+    settings.github_token = "fake-token"
+    client = GitHubMCPClient(settings)
+    client.execute_graphql = AsyncMock(return_value={
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "nodes": [
+                            {"id": "PRRT_123", "isResolved": False, "isOutdated": True}
+                        ]
+                    }
+                }
+            }
+        }
+    })
+
+    threads = asyncio.run(client.get_review_threads_graphql("owner", "repo", 10))
+    assert len(threads) == 1
+    assert threads[0]["id"] == "PRRT_123"
+
+
+def test_resolve_thread_graphql():
+    settings = MagicMock()
+    settings.github_token = "fake-token"
+    client = GitHubMCPClient(settings)
+    client.execute_graphql = AsyncMock(return_value={
+        "data": {
+            "resolveReviewThread": {
+                "thread": {
+                    "id": "PRRT_123",
+                    "isResolved": True
+                }
+            }
+        }
+    })
+
+    thread = asyncio.run(client.resolve_thread_graphql("PRRT_123"))
+    assert thread["id"] == "PRRT_123"
+    assert thread["isResolved"] is True
+
+
+def test_resolves_outdated_threads_via_graphql_flow():
+    github = AsyncMock()
+    github.get_review_threads_graphql.return_value = [
+        {"id": "PRRT_GQL_1", "isResolved": False, "isOutdated": True},
+        {"id": "PRRT_GQL_2", "isResolved": True, "isOutdated": True},
+    ]
+    github.resolve_thread.return_value = {"id": "PRRT_GQL_1", "isResolved": True}
+    settings = AsyncMock()
+    settings.github_owner = "test-owner"
+    settings.github_repo = "test-repo"
+
+    resolved = asyncio.run(resolve_outdated_threads(github, settings, 12, None))
+
+    assert resolved == ["PRRT_GQL_1"]
+    github.resolve_thread.assert_awaited_once_with(
+        owner="test-owner",
+        repo="test-repo",
+        pull_number=12,
+        thread_id="PRRT_GQL_1",
+    )

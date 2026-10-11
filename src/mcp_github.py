@@ -2,6 +2,8 @@ import json
 import os
 from typing import Any
 
+import httpx
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -165,6 +167,97 @@ class GitHubMCPClient:
             },
         )
 
+    async def execute_graphql(
+        self,
+        query: str,
+        variables: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Execute a direct GraphQL request against GitHub API."""
+        url = "https://api.github.com/graphql"
+        headers = {
+            "Authorization": f"Bearer {self.settings.github_token}",
+            "Accept": "application/vnd.github.v4+json",
+            "User-Agent": "ai-review-agent",
+        }
+        payload = {"query": query, "variables": variables or {}}
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, headers=headers, timeout=30.0)
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"GitHub GraphQL HTTP error {response.status_code}: {response.text}"
+            )
+
+        data = response.json()
+        if "errors" in data and data["errors"]:
+            error_messages = [e.get("message", str(e)) for e in data["errors"]]
+            raise RuntimeError(f"GitHub GraphQL error: {'; '.join(error_messages)}")
+
+        return data
+
+    async def get_review_threads_graphql(
+        self,
+        owner: str,
+        repo: str,
+        pull_number: int,
+    ) -> list[dict[str, Any]]:
+        """Fetch review threads for a pull request using direct GraphQL API."""
+        query = """
+        query GetReviewThreads($owner: String!, $repo: String!, $pullNumber: Int!) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $pullNumber) {
+              reviewThreads(first: 100) {
+                nodes {
+                  id
+                  isResolved
+                  isOutdated
+                }
+              }
+            }
+          }
+        }
+        """
+        variables = {
+            "owner": owner,
+            "repo": repo,
+            "pullNumber": pull_number,
+        }
+        result = await self.execute_graphql(query, variables)
+        pr_data = (
+            result.get("data", {})
+            .get("repository", {})
+            .get("pullRequest", {})
+        )
+        if not pr_data:
+            return []
+        threads = pr_data.get("reviewThreads", {}).get("nodes", [])
+        return threads or []
+
+    async def resolve_thread_graphql(
+        self,
+        thread_id: str,
+    ) -> dict[str, Any]:
+        """Resolve a PR review thread using direct GraphQL mutation."""
+        query = """
+        mutation ResolveThread($threadId: ID!) {
+          resolveReviewThread(input: {threadId: $threadId}) {
+            thread {
+              id
+              isResolved
+            }
+          }
+        }
+        """
+        variables = {"threadId": thread_id}
+        result = await self.execute_graphql(query, variables)
+        thread = (
+            result.get("data", {})
+            .get("resolveReviewThread", {})
+            .get("thread", {})
+        )
+        return thread
+
     async def resolve_thread(
         self,
         owner: str,
@@ -172,18 +265,8 @@ class GitHubMCPClient:
         pull_number: int,
         thread_id: str,
     ) -> Any:
-        """Resolve an existing Pull Request review thread."""
-
-        return await self.call(
-            "pull_request_review_write",
-            {
-                "owner": owner,
-                "repo": repo,
-                "pullNumber": pull_number,
-                "method": "resolve_thread",
-                "threadId": thread_id,
-            },
-        )
+        """Resolve an existing Pull Request review thread using direct GraphQL."""
+        return await self.resolve_thread_graphql(thread_id=thread_id)
 
     async def create_review(
         self,

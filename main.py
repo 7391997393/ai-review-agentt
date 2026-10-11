@@ -116,37 +116,55 @@ async def resolve_outdated_threads(
     github: GitHubMCPClient,
     settings: Settings,
     pull_number: int,
-    response: Any,
+    response: Any = None,
 ) -> list[str]:
-    """Attempt to resolve outdated, unresolved review threads."""
-    if not isinstance(response, dict):
+    """Attempt to resolve outdated, unresolved review threads using direct GraphQL."""
+    threads = []
+
+    # 1. Fetch threads directly via GraphQL for accurate GraphQL IDs and resolution state
+    if hasattr(github, "get_review_threads_graphql"):
+        try:
+            gql_threads = await github.get_review_threads_graphql(
+                owner=settings.github_owner,
+                repo=settings.github_repo,
+                pull_number=pull_number,
+            )
+            if isinstance(gql_threads, list) and gql_threads:
+                threads = gql_threads
+                print(f"Retrieved {len(threads)} review thread(s) via direct GraphQL.")
+        except Exception as exc:
+            print(f"Direct GraphQL thread query failed, checking response object: {exc}")
+
+    # 2. Fallback to response object if GraphQL didn't return threads
+    if not threads and isinstance(response, dict):
+        threads = response.get("review_threads", [])
+
+    if not isinstance(threads, list):
         print("Cannot inspect review threads: unexpected response type.")
         return []
 
-    threads = response.get("review_threads", [])
-    if not isinstance(threads, list):
-        print("Cannot inspect review threads: review_threads is not a list.")
-        return []
-
     resolved_thread_ids: list[str] = []
- 
+
     for thread in threads:
         if not isinstance(thread, dict):
             continue
- 
-        if thread.get("is_resolved") is True:
+
+        # Handle both GraphQL camelCase (isResolved) and snake_case (is_resolved)
+        is_resolved = thread.get("isResolved", thread.get("is_resolved"))
+        if is_resolved is True:
             continue
- 
-        if thread.get("is_outdated") is not True:
+
+        is_outdated = thread.get("isOutdated", thread.get("is_outdated"))
+        if is_outdated is not True:
             continue
- 
+
         thread_id = thread.get("id")
         if not thread_id:
             print("Skipping outdated thread without an ID.")
             continue
- 
-        print("Attempting to resolve outdated thread:", thread_id)
- 
+
+        print("Attempting to resolve outdated thread via GraphQL:", thread_id)
+
         try:
             result = await github.resolve_thread(
                 owner=settings.github_owner,
@@ -157,8 +175,15 @@ async def resolve_outdated_threads(
             print("Resolve thread response:", result)
 
             has_error = False
-            if isinstance(result, dict) and (result.get("isError") or result.get("error")):
+            if not result:
                 has_error = True
+            elif isinstance(result, dict):
+                if result.get("isError") or result.get("error"):
+                    has_error = True
+                elif "isResolved" in result and not result["isResolved"]:
+                    has_error = True
+                elif "is_resolved" in result and not result["is_resolved"]:
+                    has_error = True
             elif isinstance(result, str) and ("error" in result.lower() or "failed" in result.lower()):
                 has_error = True
 
@@ -168,8 +193,7 @@ async def resolve_outdated_threads(
                 print(f"Successfully resolved outdated thread {thread_id}.")
                 resolved_thread_ids.append(thread_id)
         except Exception as exc:
-            # Continue the review even if the server does not support
-            # the requested resolve operation.
+            # Continue the review even if resolution fails for a specific thread
             print(
                 "Could not resolve outdated thread:",
                 thread_id,

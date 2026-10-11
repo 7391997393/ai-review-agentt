@@ -130,14 +130,14 @@ class GitHubMCPClient:
         )
 
         context = json.dumps(
-    {
-        "pull_request": pr,
-        "changed_files": changed_files,
-        "diff": diff,
-    },
-    indent=2,
-    default=str,
-)
+            {
+                "pull_request": pr,
+                "changed_files": changed_files,
+                "diff": diff,
+            },
+            indent=2,
+            default=str,
+        )
         max_chars = self.settings.max_review_context_chars
 
         if len(context) > max_chars:
@@ -173,8 +173,8 @@ class GitHubMCPClient:
         variables: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute a direct GraphQL request against GitHub API.
-        
-        Uses the PAT from settings with 'token' auth scheme for GitHub GraphQL.
+
+        GitHub GraphQL accepts a PAT via the `token` auth scheme.
         """
         url = "https://api.github.com/graphql"
         headers = {
@@ -185,7 +185,12 @@ class GitHubMCPClient:
         payload = {"query": query, "variables": variables or {}}
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, headers=headers, timeout=30.0)
+            response = await client.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=30.0,
+            )
 
         if response.status_code != 200:
             raise RuntimeError(
@@ -249,8 +254,9 @@ class GitHubMCPClient:
         thread_id: str,
     ) -> dict[str, Any]:
         """Resolve a PR review thread using direct GraphQL mutation.
-        
-        Returns the resolved thread data or raises an exception on failure.
+
+        Returns the resolved thread object only when GitHub confirms the thread is
+        resolved. If GitHub does not confirm, treat it as a failure.
         """
         query = """
         mutation ResolveThread($threadId: ID!) {
@@ -264,25 +270,23 @@ class GitHubMCPClient:
         """
         variables = {"threadId": thread_id}
         result = await self.execute_graphql(query, variables)
-        
-        # Extract the mutation result
         thread = (
             result.get("data", {})
             .get("resolveReviewThread", {})
             .get("thread", {})
         )
-        
-        # Validate that the mutation succeeded
+
         if not thread:
             raise RuntimeError(
                 f"resolveReviewThread mutation returned no thread data for {thread_id}"
             )
-        
-        if not thread.get("isResolved"):
+
+        is_resolved = thread.get("isResolved")
+        if is_resolved is not True:
             raise RuntimeError(
                 f"resolveReviewThread mutation did not set isResolved=true for {thread_id}"
             )
-        
+
         return thread
 
     async def resolve_thread(
@@ -339,6 +343,7 @@ class GitHubMCPClient:
                 "body": body,
             },
         )
+
     async def submit_review(
         self,
         owner: str,

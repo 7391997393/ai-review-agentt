@@ -41,7 +41,7 @@ class Settings:
                 "CG_BASE_URL",
                 "https://openai.generative.engine.capgemini.com/v1",
             ),
-            github_token=required["GITHUB_TOKEN"],
+            github_token=required["GITHUB_TOKEN"].strip(),
             github_owner=os.getenv("GITHUB_OWNER", ""),
             github_repo=os.getenv("GITHUB_REPO", ""),
             max_review_context_chars=int(

@@ -38,12 +38,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
  
+      - name: Validate GitHub token format
+        env:
+          GITHUB_TOKEN: ${{ secrets.gh_pat }}
+        run: |
+          python -c "import os; t=os.environ.get('GITHUB_TOKEN', ''); print('Token present:', bool(t)); print('Token length:', len(t)); print('Contains newline:', chr(10) in t or chr(13) in t)"
+ 
       - name: Run AI Code Review
         env:
           CG_API_KEY: ${{ secrets.cg_api_key }}
           CG_MODEL: ${{ inputs.cg_model }}
           CG_BASE_URL: ${{ inputs.cg_base_url }}
-          GITHUB_TOKEN: ${{secrets.gh_pat}}
+          GITHUB_TOKEN: ${{ secrets.gh_pat }}
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

@@ -130,11 +130,64 @@ def test_resolution_failure_does_not_raise():
 def test_handles_invalid_response():
     github = AsyncMock()
     settings = AsyncMock()
- 
-    asyncio.run(
-    resolve_outdated_threads(
-        github, settings, 12, None
+
+    result = asyncio.run(
+        resolve_outdated_threads(
+            github, settings, 12, None
+        )
     )
-)
 
     github.resolve_thread.assert_not_awaited()
+    assert result == []
+
+
+def test_returns_resolved_ids_on_success():
+    github = AsyncMock()
+    github.resolve_thread.return_value = {"status": "ok"}
+    settings = AsyncMock()
+    settings.github_owner = "test-owner"
+    settings.github_repo = "test-repo"
+
+    response = {
+        "review_threads": [
+            {
+                "id": "thread-1",
+                "is_resolved": False,
+                "is_outdated": True,
+            }
+        ]
+    }
+
+    resolved = asyncio.run(
+        resolve_outdated_threads(
+            github, settings, 12, response
+        )
+    )
+
+    assert resolved == ["thread-1"]
+
+
+def test_handles_error_in_result_response():
+    github = AsyncMock()
+    github.resolve_thread.return_value = {"isError": True, "error": "Failed to resolve"}
+    settings = AsyncMock()
+    settings.github_owner = "test-owner"
+    settings.github_repo = "test-repo"
+
+    response = {
+        "review_threads": [
+            {
+                "id": "thread-1",
+                "is_resolved": False,
+                "is_outdated": True,
+            }
+        ]
+    }
+
+    resolved = asyncio.run(
+        resolve_outdated_threads(
+            github, settings, 12, response
+        )
+    )
+
+    assert resolved == []

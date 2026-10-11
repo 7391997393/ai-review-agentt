@@ -117,16 +117,18 @@ async def resolve_outdated_threads(
     settings: Settings,
     pull_number: int,
     response: Any,
-) -> None:
+) -> list[str]:
     """Attempt to resolve outdated, unresolved review threads."""
     if not isinstance(response, dict):
         print("Cannot inspect review threads: unexpected response type.")
-        return
- 
+        return []
+
     threads = response.get("review_threads", [])
     if not isinstance(threads, list):
         print("Cannot inspect review threads: review_threads is not a list.")
-        return
+        return []
+
+    resolved_thread_ids: list[str] = []
  
     for thread in threads:
         if not isinstance(thread, dict):
@@ -153,6 +155,18 @@ async def resolve_outdated_threads(
                 thread_id=thread_id,
             )
             print("Resolve thread response:", result)
+
+            has_error = False
+            if isinstance(result, dict) and (result.get("isError") or result.get("error")):
+                has_error = True
+            elif isinstance(result, str) and ("error" in result.lower() or "failed" in result.lower()):
+                has_error = True
+
+            if has_error:
+                print(f"Failed to resolve outdated thread {thread_id}: response indicated error.")
+            else:
+                print(f"Successfully resolved outdated thread {thread_id}.")
+                resolved_thread_ids.append(thread_id)
         except Exception as exc:
             # Continue the review even if the server does not support
             # the requested resolve operation.
@@ -161,6 +175,8 @@ async def resolve_outdated_threads(
                 thread_id,
                 f"({type(exc).__name__}: {exc})",
             )
+
+    return resolved_thread_ids
  
  
 async def async_main() -> None:
@@ -212,12 +228,17 @@ async def async_main() -> None:
                         )
  
         # Try to resolve outdated threads before posting the new review.
-        await resolve_outdated_threads(
+        resolved_threads = await resolve_outdated_threads(
             github=github,
             settings=settings,
             pull_number=pr_number,
             response=existing_comments,
         )
+        if resolved_threads:
+            print(
+                f"Total outdated threads resolved: {len(resolved_threads)}",
+                resolved_threads,
+            )
  
         existing_keys = extract_existing_comment_keys(existing_comments)
  

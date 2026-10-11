@@ -41,7 +41,7 @@ jobs:
           CG_API_KEY: ${{ secrets.cg_api_key }}
           CG_MODEL: ${{ inputs.cg_model }}
           CG_BASE_URL: ${{ inputs.cg_base_url }}
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.gh_pat }}
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

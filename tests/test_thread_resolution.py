@@ -257,3 +257,74 @@ def test_resolves_outdated_threads_via_graphql_flow():
         pull_number=12,
         thread_id="PRRT_GQL_1",
     )
+
+
+def test_resolves_fixed_thread_even_if_not_flagged_outdated():
+    github = AsyncMock()
+    github.get_review_threads_graphql.return_value = [
+        {
+            "id": "PRRT_FIXED",
+            "isResolved": False,
+            "isOutdated": False,
+            "path": "app.py",
+            "line": 10,
+            "comments": {
+                "nodes": [
+                    {"body": "**CRITICAL — Security**\n\n**SQL Injection**\n\nUnsafe query\n\n**Recommendation:** Use parameters"}
+                ]
+            },
+        }
+    ]
+    github.resolve_thread.return_value = {"id": "PRRT_FIXED", "isResolved": True}
+    settings = AsyncMock()
+    settings.github_owner = "test-owner"
+    settings.github_repo = "test-repo"
+
+    # Current findings is empty, meaning the issue was fixed by the developer!
+    resolved = asyncio.run(
+        resolve_outdated_threads(github, settings, 12, None, current_findings=[])
+    )
+
+    assert resolved == ["PRRT_FIXED"]
+    github.resolve_thread.assert_awaited_once_with(
+        owner="test-owner",
+        repo="test-repo",
+        pull_number=12,
+        thread_id="PRRT_FIXED",
+    )
+
+
+def test_keeps_thread_open_if_issue_still_present():
+    github = AsyncMock()
+    github.get_review_threads_graphql.return_value = [
+        {
+            "id": "PRRT_STILL_BUGGY",
+            "isResolved": False,
+            "isOutdated": False,
+            "path": "app.py",
+            "line": 10,
+            "comments": {
+                "nodes": [
+                    {"body": "**CRITICAL — Security**\n\n**SQL Injection**\n\nUnsafe query\n\n**Recommendation:** Use parameters"}
+                ]
+            },
+        }
+    ]
+    settings = AsyncMock()
+    settings.github_owner = "test-owner"
+    settings.github_repo = "test-repo"
+
+    active_finding = MagicMock()
+    active_finding.file = "app.py"
+    active_finding.line = 10
+    active_finding.title = "SQL Injection"
+
+    # Issue is still present in current_findings, so thread should NOT be resolved
+    resolved = asyncio.run(
+        resolve_outdated_threads(
+            github, settings, 12, None, current_findings=[active_finding]
+        )
+    )
+
+    assert resolved == []
+    github.resolve_thread.assert_not_awaited()

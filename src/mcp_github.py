@@ -212,6 +212,13 @@ class GitHubMCPClient:
                   id
                   isResolved
                   isOutdated
+                  path
+                  line
+                  comments(first: 5) {
+                    nodes {
+                      body
+                    }
+                  }
                 }
               }
             }

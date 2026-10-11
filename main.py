@@ -112,13 +112,66 @@ def extract_existing_comment_keys(comments: Any) -> set[str]:
     return keys
  
  
+def extract_thread_finding_key(thread: dict) -> str | None:
+    path = thread.get("path")
+    line = thread.get("line")
+    raw_comments = thread.get("comments")
+    comments = []
+    if isinstance(raw_comments, dict):
+        comments = raw_comments.get("nodes", [])
+    elif isinstance(raw_comments, list):
+        comments = raw_comments
+
+    body = ""
+    for c in comments:
+        if isinstance(c, dict) and c.get("body"):
+            body = c.get("body", "")
+            break
+
+    if not path or not line or not body:
+        return None
+
+    title = ""
+    for line_text in str(body).splitlines():
+        line_text = line_text.strip()
+        if line_text.startswith("**") and line_text.endswith("**"):
+            candidate = line_text.strip("*").strip()
+            if "—" not in candidate:
+                title = candidate
+                break
+
+    if title:
+        try:
+            return finding_key(path, int(line), title)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def is_ai_review_thread(thread: dict) -> bool:
+    raw_comments = thread.get("comments")
+    comments = []
+    if isinstance(raw_comments, dict):
+        comments = raw_comments.get("nodes", [])
+    elif isinstance(raw_comments, list):
+        comments = raw_comments
+
+    for c in comments:
+        if isinstance(c, dict):
+            body = str(c.get("body", ""))
+            if "**Recommendation:**" in body or "** — " in body:
+                return True
+    return False
+
+
 async def resolve_outdated_threads(
     github: GitHubMCPClient,
     settings: Settings,
     pull_number: int,
     response: Any = None,
+    current_findings: list[Any] | None = None,
 ) -> list[str]:
-    """Attempt to resolve outdated, unresolved review threads using direct GraphQL."""
+    """Attempt to resolve outdated or fixed review threads using direct GraphQL."""
     threads = []
 
     # 1. Fetch threads directly via GraphQL for accurate GraphQL IDs and resolution state
@@ -143,6 +196,21 @@ async def resolve_outdated_threads(
         print("Cannot inspect review threads: unexpected response type.")
         return []
 
+    active_finding_keys = set()
+    active_locations = set()
+    if current_findings is not None:
+        for f in current_findings:
+            f_file = getattr(f, "file", None)
+            f_line = getattr(f, "line", None)
+            f_title = getattr(f, "title", None)
+            if f_file and f_line:
+                try:
+                    active_locations.add((f_file, int(f_line)))
+                    if f_title:
+                        active_finding_keys.add(finding_key(f_file, int(f_line), f_title))
+                except (TypeError, ValueError):
+                    pass
+
     resolved_thread_ids: list[str] = []
 
     for thread in threads:
@@ -154,16 +222,41 @@ async def resolve_outdated_threads(
         if is_resolved is True:
             continue
 
-        is_outdated = thread.get("isOutdated", thread.get("is_outdated"))
-        if is_outdated is not True:
-            continue
-
         thread_id = thread.get("id")
         if not thread_id:
-            print("Skipping outdated thread without an ID.")
+            print("Skipping thread without an ID.")
             continue
 
-        print("Attempting to resolve outdated thread via GraphQL:", thread_id)
+        is_outdated = thread.get("isOutdated", thread.get("is_outdated"))
+
+        should_resolve = False
+        resolve_reason = ""
+
+        # Case 1: GitHub explicitly marked the thread outdated (code changed)
+        if is_outdated is True:
+            should_resolve = True
+            resolve_reason = "thread is outdated by code changes"
+        # Case 2: Developer pushed a fix and the issue is no longer reported in current findings
+        elif current_findings is not None:
+            thread_key = extract_thread_finding_key(thread)
+            thread_path = thread.get("path")
+            thread_line = thread.get("line")
+
+            if thread_key and thread_key not in active_finding_keys:
+                should_resolve = True
+                resolve_reason = f"issue fixed in new commit ({thread_key})"
+            elif not thread_key and thread_path and thread_line:
+                try:
+                    if (thread_path, int(thread_line)) not in active_locations and is_ai_review_thread(thread):
+                        should_resolve = True
+                        resolve_reason = f"issue fixed at {thread_path}:{thread_line}"
+                except (TypeError, ValueError):
+                    pass
+
+        if not should_resolve:
+            continue
+
+        print(f"Attempting to resolve thread {thread_id} ({resolve_reason}) via GraphQL...")
 
         try:
             result = await github.resolve_thread(
@@ -188,14 +281,14 @@ async def resolve_outdated_threads(
                 has_error = True
 
             if has_error:
-                print(f"Failed to resolve outdated thread {thread_id}: response indicated error.")
+                print(f"Failed to resolve thread {thread_id}: response indicated error.")
             else:
-                print(f"Successfully resolved outdated thread {thread_id}.")
+                print(f"Successfully resolved thread {thread_id} ({resolve_reason}).")
                 resolved_thread_ids.append(thread_id)
         except Exception as exc:
             # Continue the review even if resolution fails for a specific thread
             print(
-                "Could not resolve outdated thread:",
+                "Could not resolve thread:",
                 thread_id,
                 f"({type(exc).__name__}: {exc})",
             )
@@ -251,16 +344,17 @@ async def async_main() -> None:
                             },
                         )
  
-        # Try to resolve outdated threads before posting the new review.
+        # Try to resolve outdated or fixed threads before posting the new review.
         resolved_threads = await resolve_outdated_threads(
             github=github,
             settings=settings,
             pull_number=pr_number,
             response=existing_comments,
+            current_findings=findings,
         )
         if resolved_threads:
             print(
-                f"Total outdated threads resolved: {len(resolved_threads)}",
+                f"Total outdated/fixed threads resolved: {len(resolved_threads)}",
                 resolved_threads,
             )
  

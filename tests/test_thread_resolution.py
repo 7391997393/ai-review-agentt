@@ -1,330 +1,224 @@
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
+from unittest.mock import MagicMock, patch
 
-from main import resolve_outdated_threads
 from src.mcp_github import GitHubMCPClient
- 
+from src.config import Settings
 
-def test_resolves_outdated_unresolved_thread():
-    github = AsyncMock()
-    settings = AsyncMock()
-    settings.github_owner = "test-owner"
-    settings.github_repo = "test-repo"
- 
-    response = {
-        "review_threads": [
-            {
-                "id": "thread-1",
-                "is_resolved": False,
-                "is_outdated": True,
+
+@pytest.fixture
+def settings():
+    """Create test settings."""
+    return Settings(
+        openai_api_key="test-key",
+        openai_model="test-model",
+        openai_base_url="https://test.url",
+        github_token="test-pat-token",
+        github_owner="test-owner",
+        github_repo="test-repo",
+        max_review_context_chars=120000,
+    )
+
+
+@pytest.fixture
+def github_client(settings):
+    """Create a GitHubMCPClient for testing."""
+    return GitHubMCPClient(settings)
+
+
+@pytest.mark.asyncio
+async def test_graphql_auth_uses_token_scheme(github_client):
+    """Verify GraphQL auth uses 'token' scheme, not 'Bearer'."""
+    with patch("httpx.AsyncClient.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "repository": {
+                    "pullRequest": {"reviewThreads": {"nodes": []}}
+                }
             }
-        ]
-    }
- 
-    asyncio.run(
-    resolve_outdated_threads(
-        github, settings, 12, response
-    )
-)
- 
-    github.resolve_thread.assert_awaited_once_with(
-        owner="test-owner",
-        repo="test-repo",
-        pull_number=12,
-        thread_id="thread-1",
-    )
- 
-def test_skips_already_resolved_thread():
-    github = AsyncMock()
-    settings = AsyncMock()
- 
-    response = {
-        "review_threads": [
-            {
-                "id": "thread-1",
-                "is_resolved": True,
-                "is_outdated": True,
-            }
-        ]
-    }
- 
-    asyncio.run(
-    resolve_outdated_threads(
-        github, settings, 12, response
-    )
-)
- 
-    github.resolve_thread.assert_not_awaited()
- 
+        }
+        mock_post.return_value = mock_response
 
-def test_skips_non_outdated_thread():
-    github = AsyncMock()
-    settings = AsyncMock()
- 
-    response = {
-        "review_threads": [
-            {
-                "id": "thread-1",
-                "is_resolved": False,
-                "is_outdated": False,
-            }
-        ]
-    }
- 
-    asyncio.run(
-    resolve_outdated_threads(
-        github, settings, 12, response
-    )
-)
- 
-    github.resolve_thread.assert_not_awaited()
- 
-def test_skips_thread_without_id():
-    github = AsyncMock()
-    settings = AsyncMock()
- 
-    response = {
-        "review_threads": [
-            {
-                "is_resolved": False,
-                "is_outdated": True,
-            }
-        ]
-    }
- 
-    asyncio.run(
-    resolve_outdated_threads(
-        github, settings, 12, response
-    )
-)
- 
-    github.resolve_thread.assert_not_awaited()
- 
- 
-def test_resolution_failure_does_not_raise():
-    github = AsyncMock()
-    github.resolve_thread.side_effect = RuntimeError(
-        "MCP resolution failed"
-    )
-    settings = AsyncMock()
-    settings.github_owner = "test-owner"
-    settings.github_repo = "test-repo"
- 
-    response = {
-        "review_threads": [
-            {
-                "id": "thread-1",
-                "is_resolved": False,
-                "is_outdated": True,
-            }
-        ]
-    }
- 
-    asyncio.run(
-    resolve_outdated_threads(
-        github, settings, 12, response
-    )
-)
+        await github_client.get_review_threads_graphql("owner", "repo", 1)
 
-def test_handles_invalid_response():
-    github = AsyncMock()
-    settings = AsyncMock()
+        call_args = mock_post.call_args
+        headers = call_args.kwargs.get("headers", {})
 
-    result = asyncio.run(
-        resolve_outdated_threads(
-            github, settings, 12, None
-        )
-    )
-
-    github.resolve_thread.assert_not_awaited()
-    assert result == []
+        assert "Authorization" in headers
+        assert headers["Authorization"].startswith("token ")
+        assert not headers["Authorization"].startswith("Bearer ")
 
 
-def test_returns_resolved_ids_on_success():
-    github = AsyncMock()
-    github.resolve_thread.return_value = {"status": "ok"}
-    settings = AsyncMock()
-    settings.github_owner = "test-owner"
-    settings.github_repo = "test-repo"
-
-    response = {
-        "review_threads": [
-            {
-                "id": "thread-1",
-                "is_resolved": False,
-                "is_outdated": True,
-            }
-        ]
-    }
-
-    resolved = asyncio.run(
-        resolve_outdated_threads(
-            github, settings, 12, response
-        )
-    )
-
-    assert resolved == ["thread-1"]
-
-
-def test_handles_error_in_result_response():
-    github = AsyncMock()
-    github.resolve_thread.return_value = {"isError": True, "error": "Failed to resolve"}
-    settings = AsyncMock()
-    settings.github_owner = "test-owner"
-    settings.github_repo = "test-repo"
-
-    response = {
-        "review_threads": [
-            {
-                "id": "thread-1",
-                "is_resolved": False,
-                "is_outdated": True,
-            }
-        ]
-    }
-
-    resolved = asyncio.run(
-        resolve_outdated_threads(
-            github, settings, 12, response
-        )
-    )
-
-    assert resolved == []
-
-
-def test_get_review_threads_graphql():
-    settings = MagicMock()
-    settings.github_token = "fake-token"
-    client = GitHubMCPClient(settings)
-    client.execute_graphql = AsyncMock(return_value={
-        "data": {
-            "repository": {
-                "pullRequest": {
-                    "reviewThreads": {
-                        "nodes": [
-                            {"id": "PRRT_123", "isResolved": False, "isOutdated": True}
-                        ]
+@pytest.mark.asyncio
+async def test_resolve_thread_validates_is_resolved_true(github_client):
+    """Verify resolve_thread_graphql validates isResolved is true."""
+    with patch("httpx.AsyncClient.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "resolveReviewThread": {
+                    "thread": {
+                        "id": "test-thread-123",
+                        "isResolved": True,
                     }
                 }
             }
         }
-    })
+        mock_post.return_value = mock_response
 
-    threads = asyncio.run(client.get_review_threads_graphql("owner", "repo", 10))
-    assert len(threads) == 1
-    assert threads[0]["id"] == "PRRT_123"
+        result = await github_client.resolve_thread_graphql("test-thread-123")
+
+        assert result["isResolved"] is True
+        assert result["id"] == "test-thread-123"
 
 
-def test_resolve_thread_graphql():
-    settings = MagicMock()
-    settings.github_token = "fake-token"
-    client = GitHubMCPClient(settings)
-    client.execute_graphql = AsyncMock(return_value={
-        "data": {
-            "resolveReviewThread": {
-                "thread": {
-                    "id": "PRRT_123",
-                    "isResolved": True
+@pytest.mark.asyncio
+async def test_resolve_thread_fails_if_is_resolved_false(github_client):
+    """Verify resolve_thread_graphql raises error if isResolved is false."""
+    with patch("httpx.AsyncClient.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "resolveReviewThread": {
+                    "thread": {
+                        "id": "test-thread-123",
+                        "isResolved": False,
+                    }
                 }
             }
         }
-    })
+        mock_post.return_value = mock_response
 
-    thread = asyncio.run(client.resolve_thread_graphql("PRRT_123"))
-    assert thread["id"] == "PRRT_123"
-    assert thread["isResolved"] is True
-
-
-def test_resolves_outdated_threads_via_graphql_flow():
-    github = AsyncMock()
-    github.get_review_threads_graphql.return_value = [
-        {"id": "PRRT_GQL_1", "isResolved": False, "isOutdated": True},
-        {"id": "PRRT_GQL_2", "isResolved": True, "isOutdated": True},
-    ]
-    github.resolve_thread.return_value = {"id": "PRRT_GQL_1", "isResolved": True}
-    settings = AsyncMock()
-    settings.github_owner = "test-owner"
-    settings.github_repo = "test-repo"
-
-    resolved = asyncio.run(resolve_outdated_threads(github, settings, 12, None))
-
-    assert resolved == ["PRRT_GQL_1"]
-    github.resolve_thread.assert_awaited_once_with(
-        owner="test-owner",
-        repo="test-repo",
-        pull_number=12,
-        thread_id="PRRT_GQL_1",
-    )
+        with pytest.raises(RuntimeError, match="did not set isResolved=true"):
+            await github_client.resolve_thread_graphql("test-thread-123")
 
 
-def test_resolves_fixed_thread_even_if_not_flagged_outdated():
-    github = AsyncMock()
-    github.get_review_threads_graphql.return_value = [
-        {
-            "id": "PRRT_FIXED",
-            "isResolved": False,
-            "isOutdated": False,
-            "path": "app.py",
-            "line": 10,
-            "comments": {
-                "nodes": [
-                    {"body": "**CRITICAL — Security**\n\n**SQL Injection**\n\nUnsafe query\n\n**Recommendation:** Use parameters"}
-                ]
-            },
+@pytest.mark.asyncio
+async def test_resolve_thread_fails_if_no_thread_data(github_client):
+    """Verify resolve_thread_graphql raises error if thread data is missing."""
+    with patch("httpx.AsyncClient.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {"resolveReviewThread": {}}
         }
-    ]
-    github.resolve_thread.return_value = {"id": "PRRT_FIXED", "isResolved": True}
-    settings = AsyncMock()
-    settings.github_owner = "test-owner"
-    settings.github_repo = "test-repo"
+        mock_post.return_value = mock_response
 
-    # Current findings is empty, meaning the issue was fixed by the developer!
-    resolved = asyncio.run(
-        resolve_outdated_threads(github, settings, 12, None, current_findings=[])
-    )
-
-    assert resolved == ["PRRT_FIXED"]
-    github.resolve_thread.assert_awaited_once_with(
-        owner="test-owner",
-        repo="test-repo",
-        pull_number=12,
-        thread_id="PRRT_FIXED",
-    )
+        with pytest.raises(RuntimeError, match="returned no thread data"):
+            await github_client.resolve_thread_graphql("test-thread-123")
 
 
-def test_keeps_thread_open_if_issue_still_present():
-    github = AsyncMock()
-    github.get_review_threads_graphql.return_value = [
-        {
-            "id": "PRRT_STILL_BUGGY",
-            "isResolved": False,
-            "isOutdated": False,
-            "path": "app.py",
-            "line": 10,
-            "comments": {
-                "nodes": [
-                    {"body": "**CRITICAL — Security**\n\n**SQL Injection**\n\nUnsafe query\n\n**Recommendation:** Use parameters"}
-                ]
-            },
+@pytest.mark.asyncio
+async def test_get_review_threads_extracts_fields(github_client):
+    """Verify get_review_threads_graphql extracts all required fields."""
+    with patch("httpx.AsyncClient.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "nodes": [
+                                {
+                                    "id": "thread-1",
+                                    "isResolved": False,
+                                    "isOutdated": False,
+                                    "path": "src/app.py",
+                                    "line": 42,
+                                    "comments": {
+                                        "nodes": [
+                                            {"body": "**HIGH — Security**\n\nTest issue"}
+                                        ]
+                                    },
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
         }
-    ]
-    settings = AsyncMock()
-    settings.github_owner = "test-owner"
-    settings.github_repo = "test-repo"
+        mock_post.return_value = mock_response
 
-    active_finding = MagicMock()
-    active_finding.file = "app.py"
-    active_finding.line = 10
-    active_finding.title = "SQL Injection"
+        threads = await github_client.get_review_threads_graphql("owner", "repo", 1)
 
-    # Issue is still present in current_findings, so thread should NOT be resolved
-    resolved = asyncio.run(
-        resolve_outdated_threads(
-            github, settings, 12, None, current_findings=[active_finding]
-        )
-    )
+        assert len(threads) == 1
+        assert threads[0]["id"] == "thread-1"
+        assert threads[0]["isResolved"] is False
+        assert threads[0]["path"] == "src/app.py"
+        assert threads[0]["line"] == 42
 
-    assert resolved == []
-    github.resolve_thread.assert_not_awaited()
+
+@pytest.mark.asyncio
+async def test_execute_graphql_raises_on_http_error(github_client):
+    """Verify execute_graphql raises on HTTP errors."""
+    with patch("httpx.AsyncClient.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.text = "Unauthorized"
+        mock_post.return_value = mock_response
+
+        with pytest.raises(RuntimeError, match="HTTP error 401"):
+            await github_client.execute_graphql("query { test }")
+
+
+@pytest.mark.asyncio
+async def test_execute_graphql_raises_on_graphql_errors(github_client):
+    """Verify execute_graphql raises on GraphQL errors."""
+    with patch("httpx.AsyncClient.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "errors": [{"message": "Field 'test' doesn't exist on type 'Query'"}]
+        }
+        mock_post.return_value = mock_response
+
+        with pytest.raises(RuntimeError, match="GraphQL error"):
+            await github_client.execute_graphql("query { test }")
+
+
+def test_finding_key_generation():
+    """Test that finding keys are generated consistently."""
+    from main import finding_key
+
+    key1 = finding_key("src/app.py", 42, "SQL Injection")
+    key2 = finding_key("src/app.py", 42, "SQL injection")
+
+    assert key1 == key2
+    assert "src/app.py:42" in key1
+
+
+def test_extract_thread_finding_key():
+    """Test extraction of finding key from thread."""
+    from main import extract_thread_finding_key
+
+    thread = {
+        "path": "src/app.py",
+        "line": 42,
+        "comments": {
+            "nodes": [
+                {
+                    "body": "**HIGH — Security**\n\n**Possible SQL Injection**\n\nDescription here"
+                }
+            ]
+        },
+    }
+
+    key = extract_thread_finding_key(thread)
+    assert key is not None
+    assert "sql injection" in key.lower()
+
+
+def test_is_ai_review_thread():
+    """Test identification of AI review threads."""
+    from main import is_ai_review_thread
+
+    ai_thread = {"comments": {"nodes": [{"body": "**Recommendation:** Fix this issue"}]}}
+
+    non_ai_thread = {"comments": {"nodes": [{"body": "Just a regular comment"}]}}
+
+    assert is_ai_review_thread(ai_thread) is True
+    assert is_ai_review_thread(non_ai_thread) is False

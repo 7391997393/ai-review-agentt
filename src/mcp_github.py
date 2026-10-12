@@ -174,7 +174,7 @@ class GitHubMCPClient:
     ) -> dict[str, Any]:
         """Execute a direct GraphQL request against GitHub API.
 
-        GitHub GraphQL accepts a PAT via the `token` auth scheme.
+        Uses the PAT with GitHub's 'token' auth scheme for GraphQL mutations.
         """
         url = "https://api.github.com/graphql"
         headers = {
@@ -255,8 +255,8 @@ class GitHubMCPClient:
     ) -> dict[str, Any]:
         """Resolve a PR review thread using direct GraphQL mutation.
 
-        Returns the resolved thread object only when GitHub confirms the thread is
-        resolved. If GitHub does not confirm, treat it as a failure.
+        Only returns success when GitHub confirms isResolved is true.
+        Raises an exception if the mutation fails or returns unexpected data.
         """
         query = """
         mutation ResolveThread($threadId: ID!) {

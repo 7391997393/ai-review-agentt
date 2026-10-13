@@ -1,1 +1,1 @@
-password = "admin123"
+password = "from-env"

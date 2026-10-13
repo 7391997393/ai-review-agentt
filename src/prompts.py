@@ -26,15 +26,42 @@ secret exposure, unsafe deserialization, path traversal, command execution, inse
 cryptography, sensitive-data leakage, and unsafe handling of untrusted input.
 """,
     "standards": """
-Review for correctness, maintainability, readability, error handling, duplication,
-complexity, naming, and reasonable project coding standards. Do not nitpick formatting
-that an automated formatter should handle.
+Review for correctness, functional behavior, logical bugs, maintainability, readability,
+error handling, duplication, complexity, naming, and reasonable project coding standards.
+ 
+Specifically check for:
+- incorrect conditions or comparisons
+- incorrect boundary conditions
+- wrong return values
+- calculations that produce incorrect results
+- branches that handle a case incorrectly
+- logic that behaves differently from what the function name or surrounding code implies
+- unreachable or ineffective logic
+- incorrect assumptions about inputs
+- bugs that can produce incorrect application behavior
+ 
+A functional or logical bug is a valid finding even when the code is syntactically
+correct and well formatted.
+ 
+Do not nitpick formatting that an automated formatter should handle.
 """,
     "tests": """
-Review whether the changed behavior appears adequately tested. Look for changed business
-logic without corresponding tests, missing negative/error cases, and risky untested paths.
+Review whether the changed behavior appears adequately tested.
+ 
+Specifically check for:
+- newly added or modified functions with no corresponding tests
+- new business logic without tests
+- changed behavior without a test demonstrating the expected result
+- missing positive and negative/error cases
+- missing boundary-condition tests
+- risky code paths that are introduced but not tested
+ 
+If a new function or business-logic block is added in the Pull Request and there is
+no corresponding test in the supplied Pull Request changes, report a test finding.
+ 
 Do not claim coverage percentages unless coverage data is supplied.
 """,
+
     "performance": """
 Review for obvious performance risks such as N+1 database access, repeated network calls,
 unnecessary O(n^2) work, expensive operations inside loops, excessive memory use, or

@@ -12,6 +12,8 @@ on:
     secrets:
       cg_api_key:
         required: true
+      gh_pat:
+        required: true
  
 jobs:
   ai-review:
@@ -26,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 7391997393/ai-review-agentt
-          ref: main
+          ref: feature/resolve-review-threads
  
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -35,6 +37,12 @@ jobs:
  
       - name: Install dependencies
         run: pip install -r requirements.txt
+ 
+      - name: Validate GitHub token format
+        env:
+          GITHUB_TOKEN: ${{ secrets.gh_pat }}
+        run: |
+          python -c "import os; t=os.environ.get('GITHUB_TOKEN', ''); print('Token present:', bool(t)); print('Token length:', len(t)); print('Contains newline:', chr(10) in t or chr(13) in t)"
  
       - name: Run AI Code Review
         env:

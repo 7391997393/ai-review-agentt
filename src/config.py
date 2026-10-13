@@ -22,9 +22,9 @@ class Settings:
         """
 
         github_token = (
-            os.getenv("GITHUB_TOKEN")
-            or os.getenv("GH_PAT")
+            os.getenv("GH_PAT")
             or os.getenv("GITHUB_PAT")
+            or os.getenv("GITHUB_TOKEN")
             or ""
         ).strip()
 

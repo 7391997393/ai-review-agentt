@@ -581,20 +581,22 @@ async def load_review_threads(
             repo=settings.github_repo,
             pull_number=pull_number,
         )
+
         if isinstance(threads, list):
             print(f"Retrieved {len(threads)} review thread(s) via direct GraphQL.")
             return threads
+
     except Exception as exc:
         print(f"Direct GraphQL thread query failed, checking MCP response: {exc}")
 
     if isinstance(fallback_response, dict):
         threads = fallback_response.get("review_threads")
+
         if isinstance(threads, list):
             return threads
 
     print("Cannot inspect review threads: no thread data available.")
     return None
-
 
 async def resolve_outdated_threads(
     github: GitHubMCPClient,

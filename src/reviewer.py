@@ -7,7 +7,7 @@ from langchain_openai import ChatOpenAI
 from src.config import Settings
 from src.prompts import build_prompt
 from src.schemas import ReviewResult
- 
+from .finding_identity import generate_finding_id
  
 CATEGORIES = ["security", "standards", "tests", "performance"]
  
@@ -168,6 +168,7 @@ The JSON MUST have exactly this top-level structure:
 {{
   "findings": [
     {{
+      "finding_id": "abc123xyz",
       "category": "security",
       "severity": "medium",
       "file": "path/to/file",
@@ -233,6 +234,15 @@ Pull Request context:
     try:
         json_text = extract_json(str(content))
         data = json.loads(json_text)
+
+        findings = data.get("findings", [])
+        for finding in findings:
+         finding["finding_id"] = generate_finding_id(
+                file=finding.get("file", ""),
+                category=finding.get("category", ""),
+                severity=finding.get("severity", ""),
+                title=finding.get("title", ""),
+    )
  
     except (ValueError, json.JSONDecodeError):
         repair_prompt = f"""

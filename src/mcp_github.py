@@ -367,6 +367,7 @@ class GitHubMCPClient:
         )
 '''
 
+from langsmith._openapi_client.types import run_select_field
 import json
 import os
 from typing import Any
@@ -679,6 +680,48 @@ class GitHubMCPClient:
 
         return thread
 
+    async def reopen_thread_graphql(
+        self,
+        thread_id: str,
+    ) -> dict[str, Any]:
+        """Reopen a PR review thread using direct GraphQL mutation."""
+
+        query = """
+        mutation ReopenThread($threadId: ID!) {
+          unresolveReviewThread(input: {threadId: $threadId}) {
+            thread {
+              id
+              isResolved
+            }
+          }
+        }
+        """
+
+        variables = {"threadId": thread_id}
+
+        result = await self.execute_graphql(
+            query,
+            variables,
+        )
+
+        thread = (
+            result.get("data", {})
+            .get("unresolveReviewThread", {})
+            .get("thread", {})
+        )
+
+        if not thread:
+            raise RuntimeError(
+                f"unresolveReviewThread returned no thread data for {thread_id}"
+            )
+
+        if thread.get("isResolved") is True:
+            raise RuntimeError(
+                f"unresolveReviewThread did not reopen {thread_id}"
+            )
+
+        return thread
+
     async def resolve_thread(
         self,
         owner: str,
@@ -687,8 +730,25 @@ class GitHubMCPClient:
         thread_id: str,
     ) -> Any:
         """Resolve an existing Pull Request review thread using direct GraphQL."""
-        return await self.resolve_thread_graphql(thread_id=thread_id)
 
+        return await self.resolve_thread_graphql(
+            thread_id=thread_id,
+        )
+
+    async def reopen_thread(
+        self,
+        owner: str,
+        repo: str,
+        pull_number: int,
+        thread_id: str,
+    ) -> Any:
+        """Reopen an existing Pull Request review thread."""
+
+        return await self.reopen_thread_graphql(
+            thread_id=thread_id,
+        )
+
+    
     async def create_review(
         self,
         owner: str,
@@ -733,7 +793,6 @@ class GitHubMCPClient:
                 "body": body,
             },
         )
-
     async def submit_review(
         self,
         owner: str,

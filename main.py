@@ -449,6 +449,10 @@ if __name__ == "__main__":
 import asyncio
 import json
 import os
+
+from src.finding_state import decode_state, encode_state
+from src.lifecycle_manager import reconcile_state
+
 from pathlib import Path
 from typing import Any
  
@@ -658,7 +662,31 @@ async def async_main() -> None:
         graph = build_graph(settings)
         result = await graph.ainvoke({"context": context})
         findings = result["findings"]
- 
+
+        previous_states = []
+
+        current_keys = set()
+
+        for finding in findings:
+            if finding.file and finding.line:
+                current_keys.add(
+                    finding_key(
+                finding.file,
+                finding.line,
+                finding.title,
+            )
+        )
+
+        result_state, updated_states = reconcile_state(
+            previous_states=previous_states,
+            current_keys=current_keys,
+            )
+
+        print("NEW:", result_state.new)
+        print("EXISTING:", result_state.existing)
+        print("RESOLVED:", result_state.resolved)
+        print("REOPENED:", result_state.reopened)
+
         existing_comments = await github.get_review_comments(
             owner=settings.github_owner,
             repo=settings.github_repo,

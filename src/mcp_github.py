@@ -229,3 +229,35 @@ class GitHubMCPClient:
                 "body": body,
             },
         )
+
+    # Best-effort thread operations. Some MCP backends or PATs cannot perform these;
+    # we treat them as non-fatal and return False on failure.
+    async def reopen_thread(self, owner: str, repo: str, thread_id: str) -> bool:
+        try:
+            result = await self.call(
+                "pull_request_review_write",
+                {
+                    "owner": owner,
+                    "repo": repo,
+                    "method": "reopen_review_thread",
+                    "threadId": thread_id,
+                },
+            )
+            return bool(result)
+        except Exception:
+            return False
+
+    async def resolve_thread(self, owner: str, repo: str, thread_id: str) -> bool:
+        try:
+            result = await self.call(
+                "pull_request_review_write",
+                {
+                    "owner": owner,
+                    "repo": repo,
+                    "method": "resolve_review_thread",
+                    "threadId": thread_id,
+                },
+            )
+            return bool(result)
+        except Exception:
+            return False

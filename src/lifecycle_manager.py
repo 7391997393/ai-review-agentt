@@ -83,7 +83,6 @@ class LifecycleManager:
             await self.github.create_review(owner, repo, pull_number, payload)
             await self.github.submit_review(owner, repo, pull_number, payload)
         except Exception:
-            # Save is best-effort; do not fail the whole review when state persistence is unavailable.
             return
 
     async def execute_lifecycle_action(
@@ -130,7 +129,6 @@ class LifecycleManager:
                 if hasattr(self.github, "reopen_thread"):
                     await self.github.reopen_thread(owner, repo, thread_id)
         except Exception:
-            # Missing or stale thread: skip safely without failing the review batch.
             return state
 
         if action == "resolved":
@@ -184,11 +182,7 @@ class LifecycleManager:
         state = stored_state or {}
         findings_state = state.get("findings", {}) if isinstance(state, dict) else {}
         now = datetime.datetime.utcnow().isoformat() + "Z"
-        new_state: dict[str, Any] = {
-            "findings": {},
-            "thread_mappings": state.get("thread_mappings", {}) if isinstance(state, dict) else {},
-            "meta": {"last_run_iso": now},
-        }
+        new_state: dict[str, Any] = {"findings": {}, "meta": {"last_run_iso": now}}
         actions: list[tuple[str, str, dict[str, Any] | None]] = []
 
         current_map: dict[str, dict[str, Any]] = {}
@@ -209,22 +203,20 @@ class LifecycleManager:
                     "finding_key": key,
                     "thread_id": None,
                     "status": "open",
-                    "reviewed_files": {finding.get("file", ""): [finding.get("line")] if finding.get("line") else []},
+                    "reviewed_lines": {finding.get("file", ""): [finding.get("line")] if finding.get("line") else []},
                     "diagnostics": {},
-                    "created_at": now,
-                    "updated_at": now,
                 }
                 actions.append(("new", key, finding))
                 continue
 
             next_entry = dict(entry)
             if next_entry.get("status") == "resolved":
-                next_entry["status"] = "reopen"
+                next_entry["status"] = "open"
                 actions.append(("reopen", key, finding))
             else:
                 actions.append(("existing", key, finding))
 
-            reviewed = next_entry.get("reviewed_files", {}) or {}
+            reviewed = next_entry.get("reviewed_lines", {}) or {}
             file_name = finding.get("file") or ""
             lines = list(reviewed.get(file_name, []))
             line = finding.get("line")
@@ -232,9 +224,8 @@ class LifecycleManager:
                 lines.append(line)
             if file_name:
                 reviewed[file_name] = lines
-            next_entry["reviewed_files"] = reviewed
+            next_entry["reviewed_lines"] = reviewed
             next_entry.setdefault("diagnostics", {})
-            next_entry["updated_at"] = now
             new_state["findings"][key] = next_entry
 
         for key, entry in (findings_state or {}).items():
@@ -242,7 +233,6 @@ class LifecycleManager:
                 next_entry = dict(entry)
                 next_entry["status"] = "resolved"
                 next_entry.setdefault("diagnostics", {})
-                next_entry["updated_at"] = now
                 new_state["findings"][key] = next_entry
                 actions.append(("resolved", key, None))
 

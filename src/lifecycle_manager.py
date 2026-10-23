@@ -13,6 +13,45 @@ class LifecycleManager:
     def __init__(self, github_client: Any):
         self.github = github_client
 
+    def lookup_thread_id(self, state: dict[str, Any], finding_key_value: str) -> str | None:
+        """Return the stored thread_id for the supplied finding key, if any."""
+        if not isinstance(state, dict):
+            return None
+        mappings = state.get("thread_mappings", {})
+        if not isinstance(mappings, dict):
+            return None
+        mapping = mappings.get(finding_key_value)
+        if not isinstance(mapping, dict):
+            return None
+        thread_id = mapping.get("thread_id")
+        return str(thread_id) if thread_id else None
+
+    def update_thread_mapping(
+        self,
+        state: dict[str, Any],
+        finding_key_value: str,
+        thread_id: str | None,
+        status: str = "open",
+    ) -> dict[str, Any]:
+        """Persist a finding-to-thread mapping without allowing duplicates."""
+        if not isinstance(state, dict):
+            return state
+        if not thread_id:
+            return state
+        mappings = state.setdefault("thread_mappings", {})
+        if not isinstance(mappings, dict):
+            mappings = {}
+            state["thread_mappings"] = mappings
+        now = datetime.datetime.utcnow().isoformat() + "Z"
+        mappings[finding_key_value] = {
+            "finding_key": finding_key_value,
+            "thread_id": str(thread_id),
+            "status": status,
+            "created_at": state.get("meta", {}).get("last_run_iso", now),
+            "updated_at": now,
+        }
+        return state
+
     async def load_state(self, owner: str, repo: str, pull_number: int) -> dict[str, Any]:
         try:
             comments = await self.github.get_review_comments(owner, repo, pull_number)
@@ -42,6 +81,73 @@ class LifecycleManager:
             # Save is best-effort; do not fail the whole review when state persistence is unavailable.
             return
 
+    async def execute_lifecycle_action(
+        self,
+        owner: str,
+        repo: str,
+        state: dict[str, Any],
+        action: str,
+        finding_key_value: str,
+        finding: dict[str, Any] | Any | None = None,
+    ) -> dict[str, Any]:
+        """Execute a lifecycle action for a finding when the state already tracks its thread mapping."""
+        if not isinstance(state, dict):
+            return state
+
+        if action not in {"resolved", "reopen"}:
+            return state
+
+        thread_id = self.lookup_thread_id(state, finding_key_value)
+        if not thread_id:
+            return state
+
+        now = datetime.datetime.utcnow().isoformat() + "Z"
+        findings = state.get("findings", {}) if isinstance(state.get("findings", {}), dict) else {}
+        entry = findings.get(finding_key_value, {}) if isinstance(findings, dict) else {}
+        mapping = (state.get("thread_mappings", {}) or {}).get(finding_key_value, {})
+
+        if action == "resolved":
+            try:
+                if hasattr(self.github, "resolve_thread"):
+                    await self.github.resolve_thread(owner, repo, thread_id)
+            except Exception:
+                pass
+            if isinstance(entry, dict):
+                entry["status"] = "resolved"
+                entry["updated_at"] = now
+            if isinstance(mapping, dict):
+                mapping["status"] = "resolved"
+                mapping["updated_at"] = now
+            return state
+
+        if action == "reopen":
+            try:
+                if hasattr(self.github, "reopen_thread"):
+                    await self.github.reopen_thread(owner, repo, thread_id)
+            except Exception:
+                pass
+            if isinstance(entry, dict):
+                entry["status"] = "reopened"
+                entry["updated_at"] = now
+            if isinstance(mapping, dict):
+                mapping["status"] = "reopened"
+                mapping["updated_at"] = now
+            return state
+
+        return state
+
+    async def execute_lifecycle_actions(
+        self,
+        owner: str,
+        repo: str,
+        state: dict[str, Any],
+        actions: Iterable[tuple[str, str, dict[str, Any] | Any | None]],
+    ) -> dict[str, Any]:
+        """Apply lifecycle actions to stored state in the order returned by reconcile_state."""
+        for action, finding_key_value, finding in actions:
+            state = await self.execute_lifecycle_action(owner, repo, state, action, finding_key_value, finding)
+        return state
+
     def reconcile_state(
         self,
         current_findings: Iterable[dict[str, Any] | Any],
@@ -56,7 +162,11 @@ class LifecycleManager:
         state = stored_state or {}
         findings_state = state.get("findings", {}) if isinstance(state, dict) else {}
         now = datetime.datetime.utcnow().isoformat() + "Z"
-        new_state: dict[str, Any] = {"findings": {}, "meta": {"last_run_iso": now}}
+        new_state: dict[str, Any] = {
+            "findings": {},
+            "thread_mappings": state.get("thread_mappings", {}) if isinstance(state, dict) else {},
+            "meta": {"last_run_iso": now},
+        }
         actions: list[tuple[str, str, dict[str, Any] | None]] = []
 
         current_map: dict[str, dict[str, Any]] = {}
@@ -77,20 +187,22 @@ class LifecycleManager:
                     "finding_key": key,
                     "thread_id": None,
                     "status": "open",
-                    "reviewed_lines": {finding.get("file", ""): [finding.get("line")] if finding.get("line") else []},
+                    "reviewed_files": {finding.get("file", ""): [finding.get("line")] if finding.get("line") else []},
                     "diagnostics": {},
+                    "created_at": now,
+                    "updated_at": now,
                 }
                 actions.append(("new", key, finding))
                 continue
 
             next_entry = dict(entry)
             if next_entry.get("status") == "resolved":
-                next_entry["status"] = "open"
+                next_entry["status"] = "reopen"
                 actions.append(("reopen", key, finding))
             else:
                 actions.append(("existing", key, finding))
 
-            reviewed = next_entry.get("reviewed_lines", {}) or {}
+            reviewed = next_entry.get("reviewed_files", {}) or {}
             file_name = finding.get("file") or ""
             lines = list(reviewed.get(file_name, []))
             line = finding.get("line")
@@ -98,8 +210,9 @@ class LifecycleManager:
                 lines.append(line)
             if file_name:
                 reviewed[file_name] = lines
-            next_entry["reviewed_lines"] = reviewed
+            next_entry["reviewed_files"] = reviewed
             next_entry.setdefault("diagnostics", {})
+            next_entry["updated_at"] = now
             new_state["findings"][key] = next_entry
 
         for key, entry in (findings_state or {}).items():
@@ -107,6 +220,7 @@ class LifecycleManager:
                 next_entry = dict(entry)
                 next_entry["status"] = "resolved"
                 next_entry.setdefault("diagnostics", {})
+                next_entry["updated_at"] = now
                 new_state["findings"][key] = next_entry
                 actions.append(("resolved", key, None))
 

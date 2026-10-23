@@ -17,12 +17,15 @@ class LifecycleManager:
         """Return the stored thread_id for the supplied finding key, if any."""
         if not isinstance(state, dict):
             return None
+
         mappings = state.get("thread_mappings", {})
         if not isinstance(mappings, dict):
             return None
+
         mapping = mappings.get(finding_key_value)
         if not isinstance(mapping, dict):
             return None
+
         thread_id = mapping.get("thread_id")
         return str(thread_id) if thread_id else None
 
@@ -38,10 +41,12 @@ class LifecycleManager:
             return state
         if not thread_id:
             return state
+
         mappings = state.setdefault("thread_mappings", {})
         if not isinstance(mappings, dict):
             mappings = {}
             state["thread_mappings"] = mappings
+
         now = datetime.datetime.utcnow().isoformat() + "Z"
         mappings[finding_key_value] = {
             "finding_key": finding_key_value,
@@ -90,7 +95,7 @@ class LifecycleManager:
         finding_key_value: str,
         finding: dict[str, Any] | Any | None = None,
     ) -> dict[str, Any]:
-        """Execute a lifecycle action for a finding when the state already tracks its thread mapping."""
+        """Execute a lifecycle action for a finding when thread mapping is present."""
         if not isinstance(state, dict):
             return state
 
@@ -102,37 +107,47 @@ class LifecycleManager:
             return state
 
         now = datetime.datetime.utcnow().isoformat() + "Z"
-        findings = state.get("findings", {}) if isinstance(state.get("findings", {}), dict) else {}
-        entry = findings.get(finding_key_value, {}) if isinstance(findings, dict) else {}
-        mapping = (state.get("thread_mappings", {}) or {}).get(finding_key_value, {})
 
-        if action == "resolved":
-            try:
+        findings = state.get("findings", {})
+        if not isinstance(findings, dict):
+            findings = {}
+        entry = findings.get(finding_key_value, {})
+        if not isinstance(entry, dict):
+            entry = {}
+
+        mappings = state.get("thread_mappings", {})
+        if not isinstance(mappings, dict):
+            mappings = {}
+        mapping = mappings.get(finding_key_value, {})
+        if not isinstance(mapping, dict):
+            mapping = {}
+
+        try:
+            if action == "resolved":
                 if hasattr(self.github, "resolve_thread"):
                     await self.github.resolve_thread(owner, repo, thread_id)
-            except Exception:
-                pass
-            if isinstance(entry, dict):
-                entry["status"] = "resolved"
-                entry["updated_at"] = now
-            if isinstance(mapping, dict):
-                mapping["status"] = "resolved"
-                mapping["updated_at"] = now
-            return state
-
-        if action == "reopen":
-            try:
+            elif action == "reopen":
                 if hasattr(self.github, "reopen_thread"):
                     await self.github.reopen_thread(owner, repo, thread_id)
-            except Exception:
-                pass
-            if isinstance(entry, dict):
-                entry["status"] = "reopened"
-                entry["updated_at"] = now
-            if isinstance(mapping, dict):
-                mapping["status"] = "reopened"
-                mapping["updated_at"] = now
+        except Exception:
+            # Missing or stale thread: skip safely without failing the review batch.
             return state
+
+        if action == "resolved":
+            entry["status"] = "resolved"
+            entry["updated_at"] = now
+            mapping["status"] = "resolved"
+            mapping["updated_at"] = now
+        elif action == "reopen":
+            entry["status"] = "reopened"
+            entry["updated_at"] = now
+            mapping["status"] = "reopened"
+            mapping["updated_at"] = now
+
+        findings[finding_key_value] = entry
+        mappings[finding_key_value] = mapping
+        state["findings"] = findings
+        state["thread_mappings"] = mappings
 
         return state
 
@@ -145,7 +160,14 @@ class LifecycleManager:
     ) -> dict[str, Any]:
         """Apply lifecycle actions to stored state in the order returned by reconcile_state."""
         for action, finding_key_value, finding in actions:
-            state = await self.execute_lifecycle_action(owner, repo, state, action, finding_key_value, finding)
+            state = await self.execute_lifecycle_action(
+                owner,
+                repo,
+                state,
+                action,
+                finding_key_value,
+                finding,
+            )
         return state
 
     def reconcile_state(

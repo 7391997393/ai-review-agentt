@@ -60,24 +60,30 @@ jobs:
           GH_PAT: ${{ secrets.gh_pat }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
         run: |
           if [ -n "$CG_API_KEY" ] && [ -n "$GH_PAT" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          reason=""
           if [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
-            echo "::warning title=AI review skipped::Pull requests from forks do not receive repository secrets, so the AI review was NOT performed."
+            reason="this pull request comes from a fork (\`$HEAD_REPO\`) and GitHub does not pass repository secrets to fork pull requests"
+          elif [ "$ACTOR" = "dependabot[bot]" ]; then
+            reason="Dependabot runs only receive Dependabot secrets; add CG_API_KEY and GH_PAT as Dependabot secrets to review its pull requests"
+          fi
+          if [ -n "$reason" ]; then
+            echo "::warning title=AI review NOT performed::Secrets are unavailable: $reason."
             {
               echo "### ⚠️ AI review not performed"
               echo ""
-              echo "This pull request comes from a fork (\`$HEAD_REPO\`). GitHub does not pass"
-              echo "repository secrets to fork pull requests, so the agent could not run."
-              echo "A maintainer can review it manually or re-run it from a branch in this repository."
+              echo "The agent did not run because $reason."
+              echo "A maintainer can review this pull request manually."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "::error title=Missing secrets::The cg_api_key and gh_pat secrets must both be passed to the reusable workflow."
+          echo "::error title=Missing secrets::The cg_api_key and gh_pat secrets must both be passed to the reusable workflow (empty values received)."
           exit 1
 
       - name: Check out the AI Review Agent

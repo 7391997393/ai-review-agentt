@@ -22,6 +22,14 @@ dev = [
     "ruff>=0.15,<1",
 ]
 
+# This is an application, not an installable library: install it with
+# `pip install -r requirements.txt` (or requirements-dev.txt) and run main.py.
+# Declaring no packages stops `pip install .` from building a wheel that would
+# put generic top-level modules such as `config` into site-packages.
+[tool.setuptools]
+packages = []
+py-modules = []
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

@@ -87,9 +87,10 @@ run. Duplicates inside the same run are removed too.
 ### Q15. When does the agent resolve a thread?
 
 Only when all of these are true: the agent started the thread (first comment in the
-agent's format, and the author matches the token's account when known), the thread is
-unresolved, and GitHub marks it **outdated** because the code changed. Human threads
-are never resolved.
+agent's format, **and** its author is the token's account from GraphQL `viewer.login`),
+the thread is unresolved, and GitHub marks it **outdated** because the code changed.
+If the account cannot be determined, nothing is resolved. Other people's threads are
+never resolved, even if they look like AI comments.
 
 ### Q16. Why not resolve a thread when the LLM stops reporting the finding?
 
@@ -107,8 +108,8 @@ respected.
 
 `validate_finding_against_changed_files` checks the file, the rename mapping, whether
 the file was deleted, and whether the line is on the new side of the diff. Invalid
-targets are reported in the summary instead of as inline comments, so GitHub never
-rejects the review.
+targets are reported in the summary instead of as inline comments, so GitHub does not
+reject inline comments for being outside the diff.
 
 ### Q19. What happened to the LifecycleManager?
 
@@ -133,8 +134,10 @@ request read/write access on the target repository.
 ### Q22. What about pull requests from forks?
 
 GitHub does not give secrets to fork PR workflows. The workflow detects this, skips the
-review and reports "AI review not performed", so a green check is never mistaken for a
-completed review.
+review, adds a warning annotation, and writes "AI review not performed" to the job
+summary. The check itself stays green, so the summary is where to look. Dependabot
+pull requests are handled the same way unless the secrets are also stored as
+Dependabot secrets.
 
 ### Q23. How do you stop two pushes from creating two reviews at once?
 
@@ -165,7 +168,9 @@ output is sanitised so it cannot @mention people or forge the agent's hidden mar
 MCP tool errors and GraphQL errors raise `GitHubError`. If review threads cannot be
 loaded, the agent refuses to post rather than risk duplicates. If an inline comment or
 thread resolution fails, the rest of the review continues, but the process exits with
-code 1 so the job fails visibly.
+code 1 so the job fails visibly. If submitting the review fails, the agent deletes its
+own pending review first, because GitHub allows only one pending review per user and a
+leftover would block every later run.
 
 ### Q28. What happens if the LLM returns invalid output?
 
@@ -175,8 +180,10 @@ and nothing is posted.
 ### Q29. How is the project tested?
 
 `pytest` with every external service mocked. The thread-resolution path is tested end
-to end through the real `GitHubMCPClient` class, with only its MCP and HTTP transports
-replaced. Ruff and the tests run in CI (`ci.yml`) on Python 3.12 and 3.14.
+to end through the real `GitHubMCPClient` class. The pipeline tests replace only its
+`execute_graphql` and MCP `call` methods; the tests of those two methods mock
+`httpx` and the MCP session underneath them. A mutation harness checks that removing
+any safety check makes the suite fail. Ruff and the tests run in CI (`ci.yml`) on Python 3.12 and 3.14.
 
 ## Advanced
 

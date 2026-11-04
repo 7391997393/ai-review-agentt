@@ -56,7 +56,9 @@ Execution flow of one run (`main.py` → `run_review`):
    made. If that also fails, the run stops instead of posting incomplete findings.
 4. **Load existing review threads** with GitHub GraphQL. If GraphQL fails, the agent
    falls back to the MCP tool `get_review_comments`. If neither works, the run fails
-   rather than risk duplicate comments.
+   rather than risk duplicate comments. GraphQL also reports which account the token
+   belongs to (`viewer.login`). Without it, thread ownership cannot be verified, so steps
+   5 and 6 are skipped with a warning.
 5. **Resolve outdated AI threads.** These are threads the agent itself started that
    GitHub marks as outdated (`resolveReviewThread`).
 6. **Optionally reopen** resolved AI threads whose finding was reported again
@@ -66,10 +68,14 @@ Execution flow of one run (`main.py` → `run_review`):
    - **summary-only**: the finding has no line, or its line or file is not in the diff;
    - **duplicate**: the finding was already reported. Duplicates are skipped.
 8. **Publish.** The agent creates a pending review, adds the inline comments, and submits
-   it as a `COMMENT` review whose summary lists all new findings.
-9. **Exit code.** If any GitHub operation failed (a thread resolution or an inline
-   comment), the process exits with code `1`, so the Actions job is red instead of
-   falsely green.
+   it as a `COMMENT` review whose summary lists all new findings. If submitting fails,
+   the agent deletes its own pending review, because GitHub allows only one pending
+   review per user and pull request, and a leftover would block later runs. It never
+   deletes a pending review it did not create.
+9. **Exit code.** If a write operation fails (resolving or reopening a thread, creating
+   or submitting the review, or an inline comment), the process exits non-zero, so the
+   Actions job is red instead of falsely green. Read-only problems that the agent can
+   work around, such as failing to load earlier reviews, are logged as warnings.
 
 ### Review categories
 
@@ -89,10 +95,15 @@ All comment formatting and parsing lives in `src/thread_resolver.py`, so the com
 agent writes and the comment it reads back can never drift apart.
 
 - **AI thread identification.** A thread belongs to the agent only if its *first*
-  comment has the agent's format: a hidden `<!-- ai-review-agent:finding -->` marker, or
-  the legacy `**Recommendation:**` layout. When GitHub returns the author, that author
-  must also be the account behind the token. Human threads are never resolved or
-  reopened.
+  comment has the agent's format, **and** that comment's author is the account behind
+  the token. The format is either a hidden `<!-- ai-review-agent:finding -->` marker, or
+  the exact layout of comments posted by earlier versions: a first line
+  `**SEVERITY — Category**` with a known severity and category, plus a
+  `**Recommendation:**` line. Threads by anyone else are never resolved or reopened,
+  even if they look like AI comments, and they do not hide the agent's findings as
+  duplicates. If the token belongs to a person rather than a bot account, comments that
+  person writes in exactly the agent's layout would count as the agent's. Use a
+  dedicated bot account for the token to avoid this.
 - **Inline duplicates.** A finding's key is `file:line:normalised title`. The
   description is deliberately left out, so a reworded finding still counts as the same
   one. A finding is a duplicate when an AI thread with the same key still sits on
@@ -216,8 +227,11 @@ The reusable workflow also:
 
 GitHub does not pass repository secrets to workflows triggered by `pull_request` events
 from forks. For those pull requests the workflow **does not run the review**. It
-reports a warning and writes "AI review not performed" to the job summary, so a green
-check is never mistaken for a completed review. Do not switch the caller to
+reports a warning annotation and writes "AI review not performed" to the job summary.
+The check itself still shows as successful, so look at the summary or annotations
+rather than the check colour alone. Dependabot pull requests are handled the same way,
+unless `CG_API_KEY` and `GH_PAT` are also stored as Dependabot secrets. Do not switch
+the caller to
 `pull_request_target` to work around this unless you have assessed the security
 implications for your repository.
 
@@ -281,10 +295,13 @@ on Python 3.12 and 3.14.
 - **No PR code is executed.** The workflow checks out only the agent repository, never
   the pull request's code.
 - **Secrets** come only from GitHub Actions secrets or a local, gitignored `.env`. Tokens
-  and full API payloads are never logged.
+  are never logged. MCP responses are logged only as sizes, and the review body only at
+  `DEBUG` level. Error messages can include up to 500 characters of the GitHub error
+  response.
 - **Least privilege.** The job has `contents: read` and `pull-requests: write`, the MCP
   server is limited to the `repos,pull_requests,issues` toolsets, and its image is pinned.
-- **Human threads are never resolved or reopened.**
+- **Only the agent's own threads are resolved or reopened.** Ownership is checked
+  against the token's account, and nothing is resolved when that account is unknown.
 
 ## Limitations and future improvements
 
@@ -293,6 +310,10 @@ on Python 3.12 and 3.14.
 - The model's line numbers can still be wrong. Those findings are moved to the summary
   instead of failing.
 - Up to 25 findings are kept per run.
+- Duplicate detection matches findings by file, line and title. If the model words the
+  title of the same issue differently on a later run, it can be posted again. The demo
+  PR #6 in this repository shows three "Hard-coded password …" comments with different
+  titles on one line.
 - No static analysis yet. Combining Ruff/Bandit/CodeQL results with the LLM review is a
   natural next step.
 - Ideas: separate graph nodes per category, repository-specific rules, configurable

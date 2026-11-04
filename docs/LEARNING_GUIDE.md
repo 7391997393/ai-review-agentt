@@ -128,8 +128,9 @@ checks that the secrets exist, checks out the agent (`agent_ref`), installs the
 requirements and runs `python main.py`. It allows only one review per PR at a time and
 has a 20-minute timeout.
 
-For pull requests from forks, GitHub does not provide secrets. The workflow then skips
-the review and says so clearly in a warning and in the job summary.
+For pull requests from forks (and Dependabot pull requests without Dependabot
+secrets), GitHub does not provide the secrets. The workflow then skips the review and
+says so in a warning annotation and in the job summary. The check itself stays green.
 
 ## 10. How does the agent know the PR number?
 
@@ -181,9 +182,11 @@ format.
 
 - **Finding key** = `file:line:normalised title`. The description is left out on
   purpose, so a reworded finding is still the same finding.
-- An **AI thread** is one whose *first* comment has the agent's format, and whose author
-  is the token's account when GitHub reports the author. Human threads are never
-  touched.
+- An **AI thread** is one whose *first* comment has the agent's format (hidden marker,
+  or the exact legacy `**SEVERITY — Category**` + `**Recommendation:**` layout) **and**
+  whose author is the token's account, known from GraphQL `viewer.login`. Other people's
+  threads are never resolved or reopened, and they never hide the agent's findings. When
+  the account is unknown (GraphQL down), resolve and reopen are skipped entirely.
 - **Outdated AI threads** (the code under them changed) are **resolved**. The finding
   may then be reported again on the new code.
 - A finding is a **duplicate** if an AI thread with the same key still sits on current
@@ -215,7 +218,8 @@ Anything else is reported in the summary review instead.
 - Model output is also untrusted. Mentions (`@user`) are neutralised and HTML comments
   are escaped, so the model cannot ping people or forge hidden markers.
 - No PR code is checked out or executed.
-- Tokens are never logged, and debug logs record only response sizes.
+- Tokens are never logged. MCP responses are logged only as sizes, and the review body
+  only at DEBUG level.
 
 ## 17. Why temperature 0 and why COMMENT reviews?
 
@@ -242,7 +246,9 @@ AI suggests  ->  human validates  ->  merge decision
 10. Outdated AI threads are resolved; reopening is optional.
 11. Findings are split into inline, summary-only and duplicate.
 12. A pending review is created, inline comments are added, the review is submitted.
-13. The exit code is 1 if any GitHub operation failed, otherwise 0.
+13. The exit code is non-zero if any write operation failed (resolve/reopen, review
+    creation or submission, inline comment). If submitting fails, the agent deletes its
+    own pending review first.
 ```
 
 ## 19. The most important distinction

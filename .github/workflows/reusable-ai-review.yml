@@ -1,50 +1,107 @@
 name: Reusable AI Code Review
- 
+
 on:
   workflow_call:
     inputs:
       cg_model:
+        description: Capgemini Generative Engine model name.
         required: true
         type: string
       cg_base_url:
-        required: true
+        description: OpenAI-compatible base URL (empty = Capgemini default).
+        required: false
         type: string
+        default: ""
+      agent_ref:
+        description: >-
+          Branch, tag or SHA of the agent code to run. Keep it equal to the ref used in
+          `uses: ...reusable-ai-review.yml@<ref>` so the workflow and the code match.
+        required: false
+        type: string
+        default: main
+      agent_repository:
+        description: Repository that contains the agent code.
+        required: false
+        type: string
+        default: 7391997393/ai-review-agentt
+      reopen_resolved_threads:
+        description: Reopen resolved AI threads whose finding is reported again.
+        required: false
+        type: boolean
+        default: false
+      log_level:
+        required: false
+        type: string
+        default: INFO
     secrets:
       cg_api_key:
         required: true
       gh_pat:
         required: true
- 
+
 jobs:
   ai-review:
     runs-on: ubuntu-latest
- 
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
- 
+    # One review at a time per PR. A newer push waits instead of cancelling a
+    # run that may be halfway through posting its review.
+    concurrency:
+      group: ai-review-${{ github.repository }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: false
+
     steps:
-      - name: Checkout AI Review Agent
+      - name: Check that secrets are available
+        id: guard
+        env:
+          CG_API_KEY: ${{ secrets.cg_api_key }}
+          GH_PAT: ${{ secrets.gh_pat }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [ -n "$CG_API_KEY" ] && [ -n "$GH_PAT" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "::warning title=AI review skipped::Pull requests from forks do not receive repository secrets, so the AI review was NOT performed."
+            {
+              echo "### ⚠️ AI review not performed"
+              echo ""
+              echo "This pull request comes from a fork (\`$HEAD_REPO\`). GitHub does not pass"
+              echo "repository secrets to fork pull requests, so the agent could not run."
+              echo "A maintainer can review it manually or re-run it from a branch in this repository."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error title=Missing secrets::The cg_api_key and gh_pat secrets must both be passed to the reusable workflow."
+          exit 1
+
+      - name: Check out the AI Review Agent
+        if: steps.guard.outputs.run == 'true'
         uses: actions/checkout@v4
         with:
-          repository: 7391997393/ai-review-agentt
-          ref: feature/resolve-review-threads
- 
+          repository: ${{ inputs.agent_repository }}
+          ref: ${{ inputs.agent_ref }}
+          persist-credentials: false
+
       - name: Set up Python
+        if: steps.guard.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
- 
+          cache: pip
+          cache-dependency-path: requirements.txt
+
       - name: Install dependencies
+        if: steps.guard.outputs.run == 'true'
         run: pip install -r requirements.txt
- 
-      - name: Validate GitHub token format
-        env:
-          GITHUB_TOKEN: ${{ secrets.gh_pat }}
-        run: |
-          python -c "import os; t=os.environ.get('GITHUB_TOKEN', ''); print('Token present:', bool(t)); print('Token length:', len(t)); print('Contains newline:', chr(10) in t or chr(13) in t)"
- 
+
       - name: Run AI Code Review
+        if: steps.guard.outputs.run == 'true'
         env:
           CG_API_KEY: ${{ secrets.cg_api_key }}
           CG_MODEL: ${{ inputs.cg_model }}
@@ -53,4 +110,6 @@ jobs:
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          REOPEN_RESOLVED_THREADS: ${{ inputs.reopen_resolved_threads }}
+          LOG_LEVEL: ${{ inputs.log_level }}
         run: python main.py

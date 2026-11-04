@@ -1,9 +1,8 @@
-langchain>=1.1,<2
+# Runtime dependencies (installed by the reusable review workflow).
+# Keep in sync with [project].dependencies in pyproject.toml.
 langchain-openai>=1.0,<2
 langgraph>=1.0,<2
 pydantic>=2.0,<3
 python-dotenv>=1.0,<2
 mcp>=1.27,<2
-pytest>=8,<9
 httpx>=0.27,<1
-pytest-asyncio>=0.24,<2

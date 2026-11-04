@@ -34,14 +34,21 @@ def test_parse_empty_patch():
     assert parse_unified_patch("") == {}
 
 
-@pytest.mark.parametrize(("line", "expected"), [(1, True), (3, True), (4, True), (5, False), (None, False)])
+@pytest.mark.parametrize(
+    ("line", "expected"), [(1, True), (3, True), (4, True), (5, False), (None, False)]
+)
 def test_is_line_in_patch(line, expected):
     assert is_line_in_patch(PATCH, line) is expected
 
 
 FILES = [
     {"filename": "app.py", "status": "modified", "patch": PATCH},
-    {"filename": "new_name.py", "status": "renamed", "previous_filename": "old_name.py", "patch": PATCH},
+    {
+        "filename": "new_name.py",
+        "status": "renamed",
+        "previous_filename": "old_name.py",
+        "patch": PATCH,
+    },
     {"filename": "gone.py", "status": "removed", "patch": "@@ -1 +0,0 @@\n-x"},
     {"filename": "image.png", "status": "added"},
 ]

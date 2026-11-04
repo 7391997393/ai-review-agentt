@@ -52,11 +52,17 @@ class TransportFakeClient(GitHubMCPClient):
             return {
                 "data": {
                     "viewer": {"login": "ai-bot"},
-                    "repository": {"pullRequest": {"reviewThreads": {**page, "nodes": self.threads}}},
+                    "repository": {
+                        "pullRequest": {"reviewThreads": {**page, "nodes": self.threads}}
+                    },
                 }
             }
         if "reviews(" in query:
-            return {"data": {"repository": {"pullRequest": {"reviews": {**page, "nodes": self.reviews}}}}}
+            return {
+                "data": {
+                    "repository": {"pullRequest": {"reviews": {**page, "nodes": self.reviews}}}
+                }
+            }
         raise AssertionError(f"unexpected query: {query}")
 
     async def call(self, tool_name: str, arguments: dict[str, Any]) -> Any:
@@ -77,7 +83,11 @@ class TransportFakeClient(GitHubMCPClient):
         return [v["threadId"] for q, v in self.graphql_calls if f"{name}(" in q]
 
     def tool_calls(self, tool: str, method: str | None = None) -> list[dict]:
-        return [a for t, a in self.mcp_calls if t == tool and (method is None or a.get("method") == method)]
+        return [
+            a
+            for t, a in self.mcp_calls
+            if t == tool and (method is None or a.get("method") == method)
+        ]
 
 
 # -- resolve_outdated_threads with the real client --------------------------------
@@ -126,7 +136,9 @@ async def test_reopen_reported_threads_uses_unresolve_mutation(settings):
     client = TransportFakeClient(settings)
     thread = make_thread("R1", resolved=True, path="app.py", line=3, author="ai-bot")
     report = main.RunReport()
-    keys = main.inline_keys([make_finding(title="Hard-coded password")], [{"filename": "app.py", "patch": PATCH}])
+    keys = main.inline_keys(
+        [make_finding(title="Hard-coded password")], [{"filename": "app.py", "patch": PATCH}]
+    )
 
     reopened = await main.reopen_reported_threads(client, [thread], keys, report, "ai-bot")
 
@@ -214,7 +226,9 @@ async def test_async_main_full_flow(pipeline):
         ],
         reviews=[
             {
-                "body": summary_marker(summary_fingerprint(make_finding(line=None, title="Old summary"))),
+                "body": summary_marker(
+                    summary_fingerprint(make_finding(line=None, title="Old summary"))
+                ),
                 "author": {"login": "ai-bot"},
             }
         ],
@@ -266,7 +280,9 @@ async def test_async_main_fails_when_inline_comment_fails(pipeline):
     assert await main.async_main() == 1
     body = client.tool_calls("pull_request_review_write", "submit_pending")[0]["body"]
     # The failed inline finding is still in the summary and tracked by fingerprint.
-    assert summary_fingerprint(make_finding(title="Hard-coded token")) in SUMMARY_MARKER_RE.findall(body)
+    assert summary_fingerprint(make_finding(title="Hard-coded token")) in SUMMARY_MARKER_RE.findall(
+        body
+    )
 
 
 async def test_async_main_fails_when_thread_resolution_fails(pipeline):

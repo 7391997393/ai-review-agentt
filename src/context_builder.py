@@ -164,7 +164,9 @@ def build_review_context(
         diff_text = str(raw_diff)
         if len(diff_text) > budget:
             # Cut at the last hunk/file boundary that fits.
-            cut = max(diff_text.rfind("\n@@", 0, budget), diff_text.rfind("\ndiff --git", 0, budget))
+            cut = max(
+                diff_text.rfind("\n@@", 0, budget), diff_text.rfind("\ndiff --git", 0, budget)
+            )
             diff_text = diff_text[: cut if cut > 0 else budget]
             ctx.truncated = True
         fence = _fence(diff_text)

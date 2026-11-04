@@ -1,4 +1,9 @@
-from src.context_builder import build_review_context, describe_pull_request, render_hunk, split_hunks
+from src.context_builder import (
+    build_review_context,
+    describe_pull_request,
+    render_hunk,
+    split_hunks,
+)
 from tests.conftest import PATCH
 
 DETAILS = {

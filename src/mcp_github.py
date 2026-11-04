@@ -158,7 +158,10 @@ class GitHubMCPClient:
         await self.session.initialize()
 
     async def close(self) -> None:
-        for name, ctx in (("MCP session", self._session_context), ("MCP stdio", self._stdio_context)):
+        for name, ctx in (
+            ("MCP session", self._session_context),
+            ("MCP stdio", self._stdio_context),
+        ):
             if ctx is None:
                 continue
             try:
@@ -261,7 +264,13 @@ class GitHubMCPClient:
         """Create a pending review."""
         return await self.call(
             "pull_request_review_write",
-            {"owner": owner, "repo": repo, "pullNumber": pull_number, "method": "create", "body": body},
+            {
+                "owner": owner,
+                "repo": repo,
+                "pullNumber": pull_number,
+                "method": "create",
+                "body": body,
+            },
         )
 
     async def add_inline_comment(
@@ -327,7 +336,9 @@ class GitHubMCPClient:
                 GITHUB_GRAPHQL_URL, json=payload, headers=headers, timeout=30.0
             )
         except httpx.HTTPError as exc:
-            raise GitHubError(f"GitHub GraphQL request failed: {type(exc).__name__}: {exc}") from exc
+            raise GitHubError(
+                f"GitHub GraphQL request failed: {type(exc).__name__}: {exc}"
+            ) from exc
 
         if response.status_code != 200:
             raise GitHubError(
@@ -342,9 +353,7 @@ class GitHubMCPClient:
 
         errors = data.get("errors")
         if errors:
-            messages = [
-                e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in errors
-            ]
+            messages = [e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in errors]
             raise GitHubError(f"GitHub GraphQL error: {'; '.join(messages)}")
         return data
 
@@ -364,7 +373,9 @@ class GitHubMCPClient:
             if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
                 return nodes, first_result
             cursor = page_info["endCursor"]
-        logger.warning("Stopped after %d pages of %s; results may be incomplete", max_pages, path[-1])
+        logger.warning(
+            "Stopped after %d pages of %s; results may be incomplete", max_pages, path[-1]
+        )
         return nodes, first_result
 
     async def get_review_threads_graphql(
@@ -406,8 +417,9 @@ class GitHubMCPClient:
         if not thread:
             raise GitHubError(f"{field_name} mutation returned no thread data for {thread_id}")
         if thread.get("isResolved") is not resolve:
+            expected = str(resolve).lower()
             raise GitHubError(
-                f"{field_name} mutation did not set isResolved={str(resolve).lower()} for {thread_id}"
+                f"{field_name} mutation did not set isResolved={expected} for {thread_id}"
             )
         return thread
 

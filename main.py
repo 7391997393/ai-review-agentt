@@ -168,7 +168,9 @@ async def resolve_outdated_threads(
     """
     report = report if report is not None else RunReport()
     selected = select_threads_to_resolve(threads, agent_login)
-    resolved = await _apply_to_threads("resolve", "Resolved", github.resolve_thread, selected, report)
+    resolved = await _apply_to_threads(
+        "resolve", "Resolved", github.resolve_thread, selected, report
+    )
     report.resolved_threads.extend(resolved)
     return resolved
 
@@ -260,7 +262,9 @@ async def publish_review(
             )
             report.inline_posted += 1
         except Exception as exc:  # noqa: BLE001 - keep posting the other comments
-            message = f"Inline comment failed for {path}:{finding.line}: {type(exc).__name__}: {exc}"
+            message = (
+                f"Inline comment failed for {path}:{finding.line}: {type(exc).__name__}: {exc}"
+            )
             logger.error(message)
             report.failures.append(message)
             # Still shown in the summary; track it so it is not repeated.
@@ -299,7 +303,9 @@ async def run_review(github: GitHubMCPClient, settings: Settings, pull_number: i
     report.duplicates = len(plan.duplicates)
     report.summary_only = len(plan.summary_only)
     for finding in plan.duplicates:
-        logger.info("Skipping duplicate finding: %s:%s - %s", finding.file, finding.line, finding.title)
+        logger.info(
+            "Skipping duplicate finding: %s:%s - %s", finding.file, finding.line, finding.title
+        )
 
     if not plan.new_findings:
         logger.info("No new findings to publish (%d duplicate(s) skipped).", report.duplicates)

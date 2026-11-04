@@ -131,7 +131,12 @@ def test_thread_without_id_is_skipped():
 
 
 def test_snake_case_fields_from_mcp_are_supported():
-    thread = {"id": "T9", "is_resolved": False, "is_outdated": True, "comments": [{"body": AI_BODY}]}
+    thread = {
+        "id": "T9",
+        "is_resolved": False,
+        "is_outdated": True,
+        "comments": [{"body": AI_BODY}],
+    }
     assert ids(select_threads_to_resolve([thread])) == ["T9"]
 
 

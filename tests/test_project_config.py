@@ -8,9 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def requirement_lines(name: str) -> set[str]:
     lines = (ROOT / name).read_text(encoding="utf-8").splitlines()
-    return {
-        line.strip() for line in lines if line.strip() and not line.startswith(("#", "-r"))
-    }
+    return {line.strip() for line in lines if line.strip() and not line.startswith(("#", "-r"))}
 
 
 def test_runtime_requirements_match_pyproject():
@@ -20,9 +18,7 @@ def test_runtime_requirements_match_pyproject():
 
 def test_dev_requirements_match_pyproject():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    assert requirement_lines("requirements-dev.txt") == set(
-        project["optional-dependencies"]["dev"]
-    )
+    assert requirement_lines("requirements-dev.txt") == set(project["optional-dependencies"]["dev"])
 
 
 def test_workflow_installs_only_runtime_requirements():

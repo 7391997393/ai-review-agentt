@@ -2,9 +2,20 @@ import pytest
 
 from src.config import DEFAULT_CG_BASE_URL, DEFAULT_MCP_IMAGE, Settings
 
-ENV = ("CG_API_KEY", "CG_MODEL", "CG_BASE_URL", "GITHUB_TOKEN", "GH_PAT", "GITHUB_PAT",
-       "MAX_REVIEW_CONTEXT_CHARS", "CG_MAX_OUTPUT_TOKENS", "REOPEN_RESOLVED_THREADS",
-       "GITHUB_MCP_IMAGE", "GITHUB_OWNER", "GITHUB_REPO")
+ENV = (
+    "CG_API_KEY",
+    "CG_MODEL",
+    "CG_BASE_URL",
+    "GITHUB_TOKEN",
+    "GH_PAT",
+    "GITHUB_PAT",
+    "MAX_REVIEW_CONTEXT_CHARS",
+    "CG_MAX_OUTPUT_TOKENS",
+    "REOPEN_RESOLVED_THREADS",
+    "GITHUB_MCP_IMAGE",
+    "GITHUB_OWNER",
+    "GITHUB_REPO",
+)
 
 
 @pytest.fixture(autouse=True)

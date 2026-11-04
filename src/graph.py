@@ -13,21 +13,20 @@ class ReviewState(TypedDict, total=False):
 
 
 def build_graph(settings: Settings):
-    """Build a simple LangGraph with one AI review node.
+    """Build the LangGraph review workflow: START -> review -> END.
 
-    One model call reviews all four categories. This keeps the demo simple and
-    reduces Gemini quota usage compared with four separate model calls.
+    A single node reviews all four categories (security, standards, tests,
+    performance) with one model call. This keeps LLM cost and latency low; the
+    graph is the extension point for adding more stages later (for example
+    separate category nodes or a static-analysis node).
     """
-    async def review_node(state: ReviewState):
-        findings = await review_all_categories(
-            settings=settings,
-            context=state["context"],
-        )
+
+    async def review_node(state: ReviewState) -> ReviewState:
+        findings = await review_all_categories(settings=settings, context=state["context"])
         return {"findings": findings}
 
     builder = StateGraph(ReviewState)
     builder.add_node("review", review_node)
     builder.add_edge(START, "review")
     builder.add_edge("review", END)
-
     return builder.compile()

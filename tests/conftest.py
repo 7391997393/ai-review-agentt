@@ -16,6 +16,8 @@ AI_BODY = (
     "**Recommendation:** Use an environment variable."
 )
 
+AGENT = "ai-bot"  # login of the account behind the test token
+
 PATCH = "\n".join(
     [
         "@@ -1,3 +1,4 @@",
@@ -65,7 +67,7 @@ def make_thread(
     path: str = "src/app.py",
     line: int | None = 25,
     original_line: int | None = None,
-    author: str | None = None,
+    author: str | None = AGENT,
     extra_comments: list[dict] | None = None,
 ) -> dict[str, Any]:
     first: dict[str, Any] = {"body": body}

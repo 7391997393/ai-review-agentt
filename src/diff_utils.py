@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from src.context_builder import patch_lines
 from src.schemas import Finding
 
 _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -24,7 +25,7 @@ def parse_unified_patch(patch: str | None) -> dict[int, str]:
         return lines
 
     current: int | None = None
-    for raw in patch.splitlines():
+    for raw in patch_lines(patch):
         match = _HUNK_RE.match(raw)
         if match:
             current = int(match.group(1))

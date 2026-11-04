@@ -53,7 +53,7 @@ def test_truncation_keeps_whole_hunks_and_lists_omitted_files():
     assert ctx.omitted_files == ["big.py"]
     assert "## Files not included (context limit)\n- big.py" in ctx.text
     assert "line 199" not in ctx.text  # no partial hunk
-    assert len(ctx.text) <= 1500 + 200
+    assert len(ctx.text) <= 1500
 
 
 def test_partial_file_keeps_leading_hunks():
@@ -77,3 +77,25 @@ def test_code_fence_survives_backticks_in_patch():
     patch = "@@ -1 +1 @@\n+```python"
     ctx = build_review_context(DETAILS, [{"filename": "README.md", "patch": patch}], 5000)
     assert "````diff" in ctx.text
+
+
+def test_context_never_exceeds_budget_even_with_many_omitted_files():
+    # Regression: the omitted-files list used to be appended after the budget
+    # was spent (PR #6 of this repository overshot by 432 chars).
+    patch = "@@ -1 +1,40 @@\n" + "+x = 1\n" * 40
+    files = [{"filename": f"pkg/module_{i:04d}.py", "patch": patch} for i in range(500)]
+    for budget in (600, 1500, 3000, 20000, 60000):
+        ctx = build_review_context(DETAILS, files, budget)
+        assert len(ctx.text) <= budget, budget
+        assert ctx.truncated
+        assert "Review context truncated" in ctx.text
+        listed = ctx.text.count("\n- pkg/module_")
+        if listed < len(ctx.omitted_files):
+            assert "more file(s)" in ctx.text
+
+
+def test_untruncated_context_has_no_reserve_or_note():
+    files = [{"filename": "app.py", "patch": PATCH}]
+    ctx = build_review_context(DETAILS, files, 10_000)
+    assert not ctx.truncated
+    assert "truncated" not in ctx.text and "Files not included" not in ctx.text

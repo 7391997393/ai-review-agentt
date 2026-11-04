@@ -25,10 +25,25 @@ class ReviewContext:
     truncated: bool = False
 
 
+def patch_lines(patch: str) -> list[str]:
+    """Split a patch on newlines only.
+
+    `str.splitlines()` would also split on form feeds, U+2028 and similar
+    characters that are legal inside source lines, shifting line numbers.
+    """
+    lines = [line.removesuffix("\r") for line in patch.split("\n")]
+    if lines and lines[-1] == "":
+        lines.pop()  # trailing newline, not an empty context line
+    return lines
+
+
+_DIFF_HEADER_RE = re.compile(r"^diff --git a/\S+ b/(\S+)$", re.MULTILINE)
+
+
 def split_hunks(patch: str) -> list[list[str]]:
     """Split a unified patch into hunks (each starting with its @@ header)."""
     hunks: list[list[str]] = []
-    for raw in patch.splitlines():
+    for raw in patch_lines(patch):
         if raw.startswith("@@"):
             hunks.append([raw])
         elif hunks:
@@ -115,11 +130,52 @@ def build_review_context(
 ) -> ReviewContext:
     """Assemble the review context within `max_chars`.
 
-    `raw_diff` is only used when no per-file patches are available.
+    `raw_diff` is only used when no per-file patches are available. The
+    result never exceeds `max_chars`: when truncation is needed, room is
+    reserved for the list of omitted files and the truncation note.
     """
+    ctx = _assemble(details, changed_files, max_chars, raw_diff, tail_reserve=0)
+    if not ctx.truncated:
+        return ctx
+    reserve = min(max(max_chars // 10, 200), 4000)
+    return _assemble(details, changed_files, max_chars, raw_diff, tail_reserve=reserve)
+
+
+def _tail(omitted: list[str], truncated: bool, limit: int) -> str:
+    """Omitted-files list plus truncation note, clipped to `limit` chars."""
+    note = "[Review context truncated because the Pull Request is too large.]"
+    if not truncated:
+        return ""
+    if not omitted:
+        return note
+    header = "## Files not included (context limit)"
+    lines = [header]
+    used = len(header) + len(note) + 2
+    for index, name in enumerate(omitted):
+        rest = len(omitted) - index
+        more = f"- … and {rest} more file(s)"
+        entry = f"- {name}"
+        # Keep room for a final "and N more" line unless this is the last name.
+        needed = len(entry) + 1 + (0 if rest == 1 else len(more) + 1)
+        if used + needed > limit:
+            lines.append(more)
+            break
+        lines.append(entry)
+        used += len(entry) + 1
+    return "\n".join(lines) + "\n" + note
+
+
+def _assemble(
+    details: Any,
+    changed_files: Iterable[Any] | None,
+    max_chars: int,
+    raw_diff: str | None,
+    tail_reserve: int,
+) -> ReviewContext:
     parts = [describe_pull_request(details), "", "## Changed files"]
     used = sum(len(p) + 1 for p in parts)
     ctx = ReviewContext(text="")
+    content_limit = max_chars - tail_reserve
 
     files = [f for f in (changed_files or []) if isinstance(f, dict)]
     have_patches = any(f.get("patch") for f in files)
@@ -131,15 +187,19 @@ def build_review_context(
             header = _file_header(changed)
             if not patch:
                 note = f"{header}\n(no textual diff available: binary, too large or rename only)\n"
-                if used + len(note) <= max_chars:
+                if used + len(note) + 1 <= content_limit:
                     parts.append(note)
                     used += len(note) + 1
+                else:
+                    ctx.omitted_files.append(name)
+                    ctx.truncated = True
                 continue
 
             rendered = [render_hunk(h) for h in split_hunks(patch)]
             fence = _fence(patch)
-            overhead = len(header) + 2 * len(fence) + len("diff") + 8
-            budget = max_chars - used - overhead
+            truncation_note = 60  # "[N more hunk(s) omitted: context limit]"
+            overhead = len(header) + 2 * len(fence) + len("diff") + 8 + truncation_note
+            budget = content_limit - used - overhead
             kept: list[str] = []
             for hunk in rendered:
                 if len(hunk) + 1 > budget:
@@ -160,30 +220,44 @@ def build_review_context(
             used += len(block) + 2
             ctx.included_files.append(name)
     elif raw_diff:
-        budget = max(0, max_chars - used - 20)
         diff_text = str(raw_diff)
+        fence_len = len(_fence(diff_text))
+        budget = max(0, content_limit - used - 2 * fence_len - 8)
+        all_paths = _DIFF_HEADER_RE.findall(diff_text)
         if len(diff_text) > budget:
-            # Cut at the last hunk/file boundary that fits.
+            # Cut at the last hunk/file boundary that fits; never mid-hunk.
             cut = max(
                 diff_text.rfind("\n@@", 0, budget), diff_text.rfind("\ndiff --git", 0, budget)
             )
-            diff_text = diff_text[: cut if cut > 0 else budget]
+            diff_text = diff_text[:cut] if cut > 0 else ""
+            # Drop a trailing file header whose hunks were all cut off.
+            last_header = diff_text.rfind("\ndiff --git")
+            if last_header > diff_text.rfind("\n@@"):
+                diff_text = diff_text[:last_header]
             ctx.truncated = True
-        fence = _fence(diff_text)
-        parts.append(f"{fence}diff\n{diff_text}\n{fence}")
-        ctx.included_files = [str(f.get("filename") or "") for f in files]
+        if all_paths:
+            kept = set(_DIFF_HEADER_RE.findall(diff_text))
+            ctx.included_files = [p for p in all_paths if p in kept]
+            ctx.omitted_files = [p for p in all_paths if p not in kept]
+        elif not ctx.truncated:
+            ctx.included_files = [str(f.get("filename") or "") for f in files]
+        if diff_text:
+            fence = _fence(diff_text)
+            parts.append(f"{fence}diff\n{diff_text}\n{fence}")
+        else:
+            parts.append("(diff too large to include)")
     else:
         parts.append("(no diff available)")
 
-    if ctx.omitted_files:
-        parts.append(
-            "## Files not included (context limit)\n"
-            + "\n".join(f"- {name}" for name in ctx.omitted_files)
-        )
-    if ctx.truncated:
-        parts.append("[Review context truncated because the Pull Request is too large.]")
+    tail = _tail(ctx.omitted_files, ctx.truncated, max_chars - used - 1)
+    if tail:
+        parts.append(tail)
 
     ctx.text = "\n".join(parts)
+    if len(ctx.text) > max_chars:
+        # Only reachable with a tiny budget (header alone too big): hard cap.
+        ctx.text = ctx.text[:max_chars]
+        ctx.truncated = True
     return ctx
 
 

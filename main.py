@@ -243,12 +243,19 @@ async def publish_review(
     findings = plan.new_findings
     fingerprints = {summary_fingerprint(f) for f in plan.summary_only}
 
-    await github.create_review(
-        owner=owner,
-        repo=repo,
-        pull_number=pull_number,
-        body=format_review(owner, repo, pull_number, findings, fingerprints),
-    )
+    try:
+        await github.create_review(
+            owner=owner,
+            repo=repo,
+            pull_number=pull_number,
+            body=format_review(owner, repo, pull_number, findings, fingerprints),
+        )
+    except GitHubError as exc:
+        # Never delete a pending review we did not create: it may be a person's draft.
+        raise GitHubError(
+            f"{exc} - if the token's account already has a pending (draft) review on "
+            "this pull request, submit or delete it and run the review again."
+        ) from exc
 
     for finding, path in plan.inline:
         try:
@@ -271,9 +278,24 @@ async def publish_review(
             fingerprints.add(summary_fingerprint(finding))
 
     body = format_review(owner, repo, pull_number, findings, fingerprints)
-    await github.submit_review(owner=owner, repo=repo, pull_number=pull_number, body=body)
+    try:
+        await github.submit_review(owner=owner, repo=repo, pull_number=pull_number, body=body)
+    except Exception as exc:
+        # GitHub allows one pending review per user and PR: a leftover draft
+        # would make every later run fail at create_review. Remove our own.
+        logger.error("Submitting the review failed (%s); deleting the pending review", exc)
+        try:
+            await github.delete_pending_review(owner=owner, repo=repo, pull_number=pull_number)
+        except Exception as cleanup_exc:  # noqa: BLE001 - report the original error
+            logger.error("Could not delete the pending review: %s", cleanup_exc)
+        raise
     report.review_posted = True
-    logger.info("Review submitted:\n%s", body)
+    logger.info(
+        "Review submitted: %d finding(s), %d inline comment(s).",
+        len(findings),
+        report.inline_posted,
+    )
+    logger.debug("Review body:\n%s", body)
 
 
 async def run_review(github: GitHubMCPClient, settings: Settings, pull_number: int) -> RunReport:
@@ -288,16 +310,21 @@ async def run_review(github: GitHubMCPClient, settings: Settings, pull_number: i
     threads = await load_review_threads(github, settings, pull_number)
     agent_login = getattr(github, "viewer_login", None)
 
-    await resolve_outdated_threads(github, threads, report, agent_login)
-
-    if settings.reopen_resolved_threads:
-        current = inline_keys(findings, data.changed_files)
-        await reopen_reported_threads(github, threads, current, report, agent_login)
+    if agent_login:
+        await resolve_outdated_threads(github, threads, report, agent_login)
+        if settings.reopen_resolved_threads:
+            current = inline_keys(findings, data.changed_files)
+            await reopen_reported_threads(github, threads, current, report, agent_login)
+    else:
+        logger.warning(
+            "Agent account unknown (GraphQL unavailable): skipping thread resolve/reopen "
+            "because thread ownership cannot be verified."
+        )
 
     plan = plan_review(
         findings,
         data.changed_files,
-        existing_thread_keys(threads, exclude_ids=report.resolved_threads),
+        existing_thread_keys(threads, exclude_ids=report.resolved_threads, agent_login=agent_login),
         await load_summary_fingerprints(github, settings, pull_number, agent_login),
     )
     report.duplicates = len(plan.duplicates)
@@ -345,11 +372,15 @@ async def async_main() -> int:
     return 0
 
 
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
 def configure_logging() -> None:
-    logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    requested = (os.getenv("LOG_LEVEL") or "INFO").strip().upper()
+    level = requested if requested in LOG_LEVELS else "INFO"
+    logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if requested != level:
+        logger.warning("Unknown LOG_LEVEL %r; using INFO", requested)
     # Request logging from HTTP libraries is noise and could include headers.
     for noisy in ("httpx", "httpcore", "openai", "mcp"):
         logging.getLogger(noisy).setLevel(logging.WARNING)

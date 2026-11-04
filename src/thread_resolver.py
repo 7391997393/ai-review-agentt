@@ -15,12 +15,16 @@ from typing import Any
 from src.schemas import Finding
 
 # Hidden marker added to every inline comment the agent writes. Older comments
-# (posted before the marker existed) are still recognised by LEGACY_AI_MARKERS.
+# (posted before the marker existed) are recognised by their exact layout:
+# a "**SEVERITY — Category**" header line plus a "**Recommendation:**" line.
 AI_COMMENT_MARKER = "<!-- ai-review-agent:finding -->"
 # Hidden marker for findings that are only reported in the summary review.
 SUMMARY_MARKER_PREFIX = "<!-- ai-review-agent:summary-finding "
 SUMMARY_MARKER_RE = re.compile(r"<!-- ai-review-agent:summary-finding ([0-9a-f]{16}) -->")
-LEGACY_AI_MARKERS = ("**Recommendation:**", "** — ")
+LEGACY_HEADER_RE = re.compile(
+    r"^\*\*(CRITICAL|HIGH|MEDIUM|LOW|INFO) — (Security|Standards|Tests|Performance)\*\*$"
+)
+LEGACY_RECOMMENDATION = "**Recommendation:**"
 
 _MENTION_RE = re.compile(r"@(?=[A-Za-z0-9_-])")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -39,7 +43,7 @@ def sanitize_text(text: Any) -> str:
     """
     value = str(text or "")
     value = value.replace("<!--", "&lt;!--").replace("-->", "--&gt;")
-    return _MENTION_RE.sub("@​", value)
+    return _MENTION_RE.sub("@\u200b", value)
 
 
 def sanitize_title(title: Any) -> str:
@@ -113,20 +117,26 @@ def parse_comment_title(body: Any) -> str | None:
     """Return the finding title from an AI comment body.
 
     The title is the first bold-only line that is not the
-    "SEVERITY — Category" header.
+    "SEVERITY — Category" header (titles may themselves contain "—").
     """
-    for text in str(body or "").splitlines():
+    for text in str(body or "").split("\n"):
         text = text.strip()
         if len(text) > 4 and text.startswith("**") and text.endswith("**"):
+            if LEGACY_HEADER_RE.match(text):
+                continue
             candidate = text.strip("*").strip()
-            if candidate and "—" not in candidate:
+            if candidate:
                 return candidate
     return None
 
 
 def is_ai_comment_body(body: Any) -> bool:
+    """True for the agent's comment layout (hidden marker or exact legacy layout)."""
     text = str(body or "")
-    return AI_COMMENT_MARKER in text or any(m in text for m in LEGACY_AI_MARKERS)
+    if AI_COMMENT_MARKER in text:
+        return True
+    first_line = next((line.strip() for line in text.split("\n") if line.strip()), "")
+    return bool(LEGACY_HEADER_RE.match(first_line)) and LEGACY_RECOMMENDATION in text
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +174,8 @@ def _author_login(item: dict) -> str | None:
     author = item.get("author") or item.get("user")
     if isinstance(author, dict):
         return author.get("login")
+    if isinstance(author, str) and author:
+        return author
     return None
 
 
@@ -172,8 +184,8 @@ def is_ai_review_thread(thread: dict, agent_login: str | None = None) -> bool:
 
     The first comment decides: a human replying inside an AI thread does not
     change its owner, and an AI-looking reply in a human thread does not make
-    it an AI thread. When the agent's login is known and GitHub returned the
-    author, the author must match as well.
+    it an AI thread. When the agent's login is known, the first comment's
+    author must be that login (a missing author does not match).
     """
     comments = thread_comments(thread)
     if not comments:
@@ -181,8 +193,7 @@ def is_ai_review_thread(thread: dict, agent_login: str | None = None) -> bool:
     first = comments[0]
     if not is_ai_comment_body(first.get("body")):
         return False
-    author = _author_login(first)
-    return not (agent_login and author and author != agent_login)
+    return agent_login is None or _author_login(first) == agent_login
 
 
 def extract_thread_finding_key(thread: dict) -> str | None:
@@ -204,8 +215,14 @@ def extract_thread_finding_key(thread: dict) -> str | None:
 
 
 def _eligible(thread: Any, agent_login: str | None) -> bool:
+    """Threads the agent may change: its own, with an ID, owner verified.
+
+    Without the agent's login ownership cannot be verified, so nothing is
+    eligible: the agent never resolves or reopens on comment format alone.
+    """
     return (
-        isinstance(thread, dict)
+        bool(agent_login)
+        and isinstance(thread, dict)
         and bool(thread.get("id"))
         and is_ai_review_thread(thread, agent_login)
     )
@@ -219,7 +236,7 @@ def select_threads_to_resolve(
 
     Threads are never resolved merely because the latest LLM run did not repeat
     a finding (LLM output is not deterministic), and human threads are never
-    touched.
+    touched. Returns nothing when `agent_login` is unknown.
     """
     return [
         (thread, "thread is outdated by code changes")
@@ -233,7 +250,10 @@ def select_threads_to_reopen(
     current_keys: Iterable[str],
     agent_login: str | None = None,
 ) -> list[tuple[dict, str]]:
-    """Resolved, still-current AI threads whose finding was reported again."""
+    """Resolved, still-current AI threads whose finding was reported again.
+
+    Returns nothing when `agent_login` is unknown.
+    """
     wanted = set(current_keys)
     selected: list[tuple[dict, str]] = []
     for thread in threads or []:
@@ -251,6 +271,7 @@ def existing_thread_keys(
     threads: Iterable[Any],
     exclude_ids: Iterable[str] = (),
     include_resolved: bool = True,
+    agent_login: str | None = None,
 ) -> set[str]:
     """Finding keys of AI threads that still sit on current code.
 
@@ -267,7 +288,7 @@ def existing_thread_keys(
             continue
         if is_resolved(thread) and not include_resolved:
             continue
-        if not is_ai_comment_body((thread_comments(thread) or [{}])[0].get("body")):
+        if not is_ai_review_thread(thread, agent_login):
             continue
         key = extract_thread_finding_key(thread)
         if key:
@@ -275,30 +296,59 @@ def existing_thread_keys(
     return keys
 
 
-def open_thread_keys(threads: Iterable[Any], exclude_ids: Iterable[str] = ()) -> set[str]:
+def open_thread_keys(
+    threads: Iterable[Any],
+    exclude_ids: Iterable[str] = (),
+    agent_login: str | None = None,
+) -> set[str]:
     """Keys of open (unresolved), current-code AI threads."""
-    return existing_thread_keys(threads, exclude_ids, include_resolved=False)
+    return existing_thread_keys(threads, exclude_ids, False, agent_login)
+
+
+def _normalize_comment(comment: dict) -> dict:
+    author = comment.get("author") or comment.get("user")
+    if isinstance(author, str):
+        return {**comment, "author": {"login": author}}
+    return comment
+
+
+def _normalize_mcp_thread(thread: dict) -> dict:
+    """GitHub MCP v2 threads keep path/line on their comments, not the thread."""
+    comments = [_normalize_comment(c) for c in thread_comments(thread)]
+    first = comments[0] if comments else {}
+    normalized = {**thread, "comments": comments}
+    if not normalized.get("path"):
+        normalized["path"] = first.get("path")
+    if normalized.get("line") is None:
+        normalized["line"] = first.get("line")
+    if normalized.get("originalLine") is None and normalized.get("original_line") is None:
+        normalized["originalLine"] = first.get("original_line") or first.get("originalLine")
+    return normalized
 
 
 def threads_from_mcp_response(response: Any) -> list[dict] | None:
     """Normalise the MCP `get_review_comments` response into thread dicts.
 
-    Supports the `review_threads` shape and a plain list of comments (each
-    comment becomes a pseudo-thread without an ID, usable for duplicate
-    detection only). Returns None for unrecognised shapes.
+    Supports the `review_threads` shape (path/line copied from the first
+    comment, string authors mapped to `{"login": ...}`) and a plain list of
+    REST comments. Each REST comment becomes a pseudo-thread without an ID,
+    usable for duplicate detection only; a null `line` means it is outdated.
+    Returns None for unrecognised shapes.
     """
     if isinstance(response, dict):
         threads = response.get("review_threads")
         if isinstance(threads, list):
-            return [t for t in threads if isinstance(t, dict)]
+            return [_normalize_mcp_thread(t) for t in threads if isinstance(t, dict)]
         response = response.get("comments")
     if isinstance(response, list):
         return [
             {
                 "id": None,
                 "path": c.get("path"),
-                "line": c.get("line") or c.get("original_line"),
-                "comments": [c],
+                "line": c.get("line"),
+                "originalLine": c.get("original_line"),
+                "isOutdated": c.get("line") is None,
+                "comments": [_normalize_comment(c)],
             }
             for c in response
             if isinstance(c, dict)
@@ -308,6 +358,7 @@ def threads_from_mcp_response(response: Any) -> list[dict] | None:
 
 __all__ = [
     "AI_COMMENT_MARKER",
+    "LEGACY_HEADER_RE",
     "existing_thread_keys",
     "extract_thread_finding_key",
     "finding_key",

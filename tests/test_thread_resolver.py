@@ -17,7 +17,7 @@ from src.thread_resolver import (
     summary_marker,
     threads_from_mcp_response,
 )
-from tests.conftest import AI_BODY, make_finding, make_thread
+from tests.conftest import AGENT, AI_BODY, make_finding, make_thread
 
 
 def ids(selected):
@@ -78,7 +78,10 @@ def test_legacy_comment_title_is_parsed():
 
 def test_ai_thread_detected_by_marker_and_legacy_format():
     assert is_ai_review_thread(make_thread(body=f"x\n{AI_COMMENT_MARKER}"))
-    assert is_ai_review_thread({"comments": {"nodes": [{"body": "**Recommendation:** Fix"}]}})
+    assert is_ai_review_thread(make_thread(body=AI_BODY))  # exact legacy layout
+    # Loose look-alikes written by people are NOT AI threads:
+    for body in ("**Recommendation:** Fix", "**Nit** — please rename", "**HIGH — Security**"):
+        assert not is_ai_review_thread(make_thread(body=body)), body
     assert not is_ai_review_thread({"comments": {"nodes": [{"body": "Just a comment"}]}})
     assert not is_ai_review_thread({"comments": []})
 
@@ -94,6 +97,7 @@ def test_human_thread_with_ai_reply_is_not_ai_thread():
 def test_author_must_match_agent_login_when_known():
     thread = make_thread(author="someone-else")
     assert is_ai_review_thread(thread)  # login unknown -> format decides
+    assert not is_ai_review_thread(make_thread(author=None), agent_login="ai-bot")
     assert not is_ai_review_thread(thread, agent_login="ai-bot")
     assert is_ai_review_thread(make_thread(author="ai-bot"), agent_login="ai-bot")
 
@@ -102,19 +106,19 @@ def test_author_must_match_agent_login_when_known():
 
 
 def test_outdated_ai_thread_is_resolved():
-    selected = select_threads_to_resolve([make_thread(outdated=True, line=None)])
+    selected = select_threads_to_resolve([make_thread(outdated=True, line=None)], AGENT)
     assert ids(selected) == ["T1"]
     assert "outdated" in selected[0][1]
 
 
 def test_open_ai_thread_is_not_resolved_when_finding_is_missing():
     # Regression: a finding the LLM did not repeat must NOT be closed.
-    assert select_threads_to_resolve([make_thread(outdated=False)]) == []
+    assert select_threads_to_resolve([make_thread(outdated=False)], AGENT) == []
 
 
 def test_human_thread_is_never_resolved_even_if_outdated():
     human = make_thread(outdated=True, body="Please rename this variable.")
-    assert select_threads_to_resolve([human]) == []
+    assert select_threads_to_resolve([human], AGENT) == []
 
 
 def test_other_authors_ai_formatted_thread_is_not_resolved():
@@ -123,11 +127,11 @@ def test_other_authors_ai_formatted_thread_is_not_resolved():
 
 
 def test_already_resolved_thread_is_skipped():
-    assert select_threads_to_resolve([make_thread(resolved=True, outdated=True)]) == []
+    assert select_threads_to_resolve([make_thread(resolved=True, outdated=True)], AGENT) == []
 
 
 def test_thread_without_id_is_skipped():
-    assert select_threads_to_resolve([make_thread(thread_id=None, outdated=True)]) == []
+    assert select_threads_to_resolve([make_thread(thread_id=None, outdated=True)], AGENT) == []
 
 
 def test_snake_case_fields_from_mcp_are_supported():
@@ -135,13 +139,14 @@ def test_snake_case_fields_from_mcp_are_supported():
         "id": "T9",
         "is_resolved": False,
         "is_outdated": True,
-        "comments": [{"body": AI_BODY}],
+        "comments": [{"body": AI_BODY, "author": "ai-bot"}],  # MCP: author is a string
     }
-    assert ids(select_threads_to_resolve([thread])) == ["T9"]
+    thread = threads_from_mcp_response({"review_threads": [thread]})[0]
+    assert ids(select_threads_to_resolve([thread], AGENT)) == ["T9"]
 
 
 def test_non_dict_items_are_ignored():
-    assert select_threads_to_resolve(["junk", None, 5]) == []
+    assert select_threads_to_resolve(["junk", None, 5], AGENT) == []
 
 
 # -- reopen selection --------------------------------------------------------------
@@ -151,8 +156,8 @@ def test_resolved_current_thread_is_reopened_when_finding_returns():
     thread = make_thread("R1", resolved=True, line=25)
     key = finding_key("src/app.py", 25, "Hard-coded password")
 
-    assert ids(select_threads_to_reopen([thread], {key})) == ["R1"]
-    assert select_threads_to_reopen([thread], set()) == []
+    assert ids(select_threads_to_reopen([thread], {key}, AGENT)) == ["R1"]
+    assert select_threads_to_reopen([thread], set(), AGENT) == []
 
 
 def test_reopen_skips_outdated_open_and_human_threads():
@@ -162,7 +167,7 @@ def test_reopen_skips_outdated_open_and_human_threads():
         make_thread("OPEN", resolved=False, line=25),
         make_thread("HUMAN", resolved=True, body="**Hard-coded password**\n\nhuman note"),
     ]
-    assert select_threads_to_reopen(threads, {key}) == []
+    assert select_threads_to_reopen(threads, {key}, AGENT) == []
 
 
 # -- duplicate keys ----------------------------------------------------------------
@@ -224,7 +229,7 @@ def test_summary_fingerprints_only_from_agent_reviews():
 
 def test_threads_from_mcp_response_shapes():
     threads = [make_thread()]
-    assert threads_from_mcp_response({"review_threads": threads}) == threads
+    assert threads_from_mcp_response({"review_threads": threads})[0]["id"] == "T1"
 
     comments = [{"path": "a.py", "line": 3, "body": AI_BODY}]
     pseudo = threads_from_mcp_response({"comments": comments})

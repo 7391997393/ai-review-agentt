@@ -311,6 +311,13 @@ class GitHubMCPClient:
             },
         )
 
+    async def delete_pending_review(self, owner: str, repo: str, pull_number: int) -> Any:
+        """Delete the token account's pending review (cleanup after a failed submit)."""
+        return await self.call(
+            "pull_request_review_write",
+            {"owner": owner, "repo": repo, "pullNumber": pull_number, "method": "delete_pending"},
+        )
+
     # -- GraphQL -----------------------------------------------------------
 
     def _http_client(self) -> httpx.AsyncClient:

@@ -102,7 +102,7 @@ async def test_resolve_outdated_threads_sends_mutation_for_ai_thread_only(settin
         make_thread("AI-DONE", resolved=True, outdated=True),
     ]
 
-    resolved = await main.resolve_outdated_threads(client, threads)
+    resolved = await main.resolve_outdated_threads(client, threads, agent_login="ai-bot")
 
     assert resolved == ["AI-OUT"]
     assert client.mutation_ids("resolveReviewThread") == ["AI-OUT"]
@@ -116,7 +116,7 @@ async def test_resolve_outdated_threads_records_graphql_failure(settings):
     report = main.RunReport()
 
     resolved = await main.resolve_outdated_threads(
-        client, [make_thread("AI-OUT", outdated=True)], report
+        client, [make_thread("AI-OUT", outdated=True)], report, "ai-bot"
     )
 
     assert resolved == []

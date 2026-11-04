@@ -333,3 +333,44 @@ def test_truncation_note_always_survives_within_budget():
         ctx = build_review_context({"title": "T"}, files, budget)
         assert len(ctx.text) <= budget, budget
         assert ctx.text.endswith(note), budget
+
+
+# -- legacy comments and agent identities (found with real PR data) --------------------
+
+
+OLDEST_LAYOUT = (
+    "**Hard-coded secret in source code**\n\n"
+    "An API key is hard-coded.\n\n"
+    "**Recommendation:** Load it from a secret store."
+)
+
+
+def test_oldest_comment_layout_without_header_is_recognised():
+    thread = make_thread(body=OLDEST_LAYOUT, path="app.py", line=3, author="github-actions[bot]")
+    assert parse_comment_title(OLDEST_LAYOUT) == "Hard-coded secret in source code"
+    keys = existing_thread_keys([thread], agent_login={"ai-bot", "github-actions[bot]"})
+    assert keys == {finding_key("app.py", 3, "Hard-coded secret in source code")}
+
+
+def test_bold_text_without_recommendation_is_not_ai_layout():
+    for body in ("**Bug**\n\nthis breaks", "**Bug** here\n\n**Recommendation:** x", "plain"):
+        assert existing_thread_keys([make_thread(body=body)], agent_login=AGENT) == set()
+
+
+async def test_extra_agent_logins_cover_threads_from_older_runs(run, monkeypatch):
+    monkeypatch.setenv("AGENT_LOGINS", "github-actions[bot]")
+    client = run(
+        [],
+        threads=[
+            make_thread("OLD-BOT", outdated=True, body=OLDEST_LAYOUT, author="github-actions[bot]"),
+            make_thread("HUMAN", outdated=True, body=OLDEST_LAYOUT, author="human"),
+        ],
+    )
+    assert await main.async_main() == 0
+    assert client.mutation_ids("resolveReviewThread") == ["OLD-BOT"]
+
+
+async def test_without_extra_logins_older_bot_threads_are_left_alone(run):
+    client = run([], threads=[make_thread("OLD-BOT", outdated=True, author="github-actions[bot]")])
+    assert await main.async_main() == 0
+    assert client.mutation_ids("resolveReviewThread") == []

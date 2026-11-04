@@ -20,6 +20,7 @@ from src.graph import build_graph
 from src.mcp_github import GitHubError, GitHubMCPClient
 from src.schemas import Finding
 from src.thread_resolver import (
+    AgentLogins,
     existing_thread_keys,
     finding_key,
     format_inline_comment,
@@ -118,7 +119,7 @@ async def load_summary_fingerprints(
     github: GitHubMCPClient,
     settings: Settings,
     pull_number: int,
-    agent_login: str | None,
+    agent_login: AgentLogins,
 ) -> set[str]:
     try:
         reviews = await github.get_reviews_graphql(
@@ -158,7 +159,7 @@ async def resolve_outdated_threads(
     github: GitHubMCPClient,
     threads: list[dict[str, Any]],
     report: RunReport | None = None,
-    agent_login: str | None = None,
+    agent_login: AgentLogins = None,
 ) -> list[str]:
     """Resolve the agent's own review threads that GitHub marks as outdated.
 
@@ -180,7 +181,7 @@ async def reopen_reported_threads(
     threads: list[dict[str, Any]],
     current_keys: set[str],
     report: RunReport,
-    agent_login: str | None = None,
+    agent_login: AgentLogins = None,
 ) -> list[str]:
     """Reopen resolved AI threads whose finding the current run reported again."""
     selected = select_threads_to_reopen(threads, current_keys, agent_login)
@@ -308,7 +309,10 @@ async def run_review(github: GitHubMCPClient, settings: Settings, pull_number: i
     findings: list[Finding] = result.get("findings", [])
 
     threads = await load_review_threads(github, settings, pull_number)
-    agent_login = getattr(github, "viewer_login", None)
+    viewer = getattr(github, "viewer_login", None)
+    # The token's account, plus accounts that posted for the agent in the past
+    # (AGENT_LOGINS, e.g. github-actions[bot]). Unknown without GraphQL.
+    agent_login = {viewer, *settings.extra_agent_logins} if viewer else None
 
     if agent_login:
         await resolve_outdated_threads(github, threads, report, agent_login)

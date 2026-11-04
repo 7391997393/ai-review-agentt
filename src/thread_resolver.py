@@ -26,6 +26,9 @@ LEGACY_HEADER_RE = re.compile(
 )
 LEGACY_RECOMMENDATION = "**Recommendation:**"
 
+# Who the agent is: one login, several logins, or None (unknown).
+AgentLogins = str | Iterable[str] | None
+
 _MENTION_RE = re.compile(r"@(?=[A-Za-z0-9_-])")
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -84,14 +87,15 @@ def summary_marker(fingerprint: str) -> str:
 
 def summary_fingerprints_from_reviews(
     reviews: Iterable[Any],
-    agent_login: str | None = None,
+    agent_login: AgentLogins = None,
 ) -> set[str]:
     """Collect fingerprints embedded in the agent's earlier summary reviews."""
+    logins = login_set(agent_login)
     found: set[str] = set()
     for review in reviews or []:
         if not isinstance(review, dict):
             continue
-        if agent_login and _author_login(review) not in (None, agent_login):
+        if logins and _author_login(review) not in logins:
             continue
         found.update(SUMMARY_MARKER_RE.findall(str(review.get("body") or "")))
     return found
@@ -130,13 +134,31 @@ def parse_comment_title(body: Any) -> str | None:
     return None
 
 
+def _is_bold_line(line: str) -> bool:
+    return len(line) > 4 and line.startswith("**") and line.endswith("**")
+
+
 def is_ai_comment_body(body: Any) -> bool:
-    """True for the agent's comment layout (hidden marker or exact legacy layout)."""
+    """True for the agent's comment layouts.
+
+    - current: contains the hidden AI_COMMENT_MARKER;
+    - legacy: first line "**SEVERITY — Category**" or a bold-only title, and a
+      line starting with "**Recommendation:**" (layouts written by earlier
+      versions of the agent).
+
+    Layout alone is not proof of ownership: callers that change threads also
+    check the author (see `is_ai_review_thread`).
+    """
     text = str(body or "")
     if AI_COMMENT_MARKER in text:
         return True
-    first_line = next((line.strip() for line in text.split("\n") if line.strip()), "")
-    return bool(LEGACY_HEADER_RE.match(first_line)) and LEGACY_RECOMMENDATION in text
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    if not lines:
+        return False
+    first = lines[0]
+    headed = bool(LEGACY_HEADER_RE.match(first)) or _is_bold_line(first)
+    has_recommendation = any(line.startswith(LEGACY_RECOMMENDATION) for line in lines[1:])
+    return headed and has_recommendation
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +192,14 @@ def thread_line(thread: dict) -> Any:
     return thread.get("line") or thread.get("originalLine") or thread.get("original_line")
 
 
+def login_set(agent_login: AgentLogins) -> frozenset[str]:
+    if not agent_login:
+        return frozenset()
+    if isinstance(agent_login, str):
+        return frozenset({agent_login})
+    return frozenset(login for login in agent_login if login)
+
+
 def _author_login(item: dict) -> str | None:
     author = item.get("author") or item.get("user")
     if isinstance(author, dict):
@@ -179,13 +209,13 @@ def _author_login(item: dict) -> str | None:
     return None
 
 
-def is_ai_review_thread(thread: dict, agent_login: str | None = None) -> bool:
+def is_ai_review_thread(thread: dict, agent_login: AgentLogins = None) -> bool:
     """True only for threads *started* by the AI agent.
 
     The first comment decides: a human replying inside an AI thread does not
     change its owner, and an AI-looking reply in a human thread does not make
-    it an AI thread. When the agent's login is known, the first comment's
-    author must be that login (a missing author does not match).
+    it an AI thread. When the agent's login(s) are known, the first comment's
+    author must be one of them (a missing author does not match).
     """
     comments = thread_comments(thread)
     if not comments:
@@ -193,7 +223,8 @@ def is_ai_review_thread(thread: dict, agent_login: str | None = None) -> bool:
     first = comments[0]
     if not is_ai_comment_body(first.get("body")):
         return False
-    return agent_login is None or _author_login(first) == agent_login
+    logins = login_set(agent_login)
+    return not logins or _author_login(first) in logins
 
 
 def extract_thread_finding_key(thread: dict) -> str | None:
@@ -214,14 +245,14 @@ def extract_thread_finding_key(thread: dict) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _eligible(thread: Any, agent_login: str | None) -> bool:
+def _eligible(thread: Any, agent_login: AgentLogins) -> bool:
     """Threads the agent may change: its own, with an ID, owner verified.
 
     Without the agent's login ownership cannot be verified, so nothing is
     eligible: the agent never resolves or reopens on comment format alone.
     """
     return (
-        bool(agent_login)
+        bool(login_set(agent_login))
         and isinstance(thread, dict)
         and bool(thread.get("id"))
         and is_ai_review_thread(thread, agent_login)
@@ -230,7 +261,7 @@ def _eligible(thread: Any, agent_login: str | None) -> bool:
 
 def select_threads_to_resolve(
     threads: Iterable[Any],
-    agent_login: str | None = None,
+    agent_login: AgentLogins = None,
 ) -> list[tuple[dict, str]]:
     """Unresolved AI threads that GitHub marks as outdated.
 
@@ -248,7 +279,7 @@ def select_threads_to_resolve(
 def select_threads_to_reopen(
     threads: Iterable[Any],
     current_keys: Iterable[str],
-    agent_login: str | None = None,
+    agent_login: AgentLogins = None,
 ) -> list[tuple[dict, str]]:
     """Resolved, still-current AI threads whose finding was reported again.
 
@@ -271,7 +302,7 @@ def existing_thread_keys(
     threads: Iterable[Any],
     exclude_ids: Iterable[str] = (),
     include_resolved: bool = True,
-    agent_login: str | None = None,
+    agent_login: AgentLogins = None,
 ) -> set[str]:
     """Finding keys of AI threads that still sit on current code.
 
@@ -299,7 +330,7 @@ def existing_thread_keys(
 def open_thread_keys(
     threads: Iterable[Any],
     exclude_ids: Iterable[str] = (),
-    agent_login: str | None = None,
+    agent_login: AgentLogins = None,
 ) -> set[str]:
     """Keys of open (unresolved), current-code AI threads."""
     return existing_thread_keys(threads, exclude_ids, False, agent_login)
@@ -367,6 +398,7 @@ __all__ = [
     "is_ai_review_thread",
     "is_outdated",
     "is_resolved",
+    "login_set",
     "open_thread_keys",
     "parse_comment_title",
     "sanitize_text",

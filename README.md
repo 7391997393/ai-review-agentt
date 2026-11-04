@@ -97,9 +97,11 @@ agent writes and the comment it reads back can never drift apart.
 - **AI thread identification.** A thread belongs to the agent only if its *first*
   comment has the agent's format, **and** that comment's author is the account behind
   the token. The format is either a hidden `<!-- ai-review-agent:finding -->` marker, or
-  the exact layout of comments posted by earlier versions: a first line
-  `**SEVERITY — Category**` with a known severity and category, plus a
-  `**Recommendation:**` line. Threads by anyone else are never resolved or reopened,
+  the layout of comments posted by earlier versions: a first line that is a
+  `**SEVERITY — Category**` header or a bold title, plus a line starting with
+  `**Recommendation:**`. If earlier runs posted under a different account (this
+  repository's older comments were posted by `github-actions[bot]`), list it in
+  `AGENT_LOGINS` so those threads are recognised as well. Threads by anyone else are never resolved or reopened,
   even if they look like AI comments, and they do not hide the agent's findings as
   duplicates. If the token belongs to a person rather than a bot account, comments that
   person writes in exactly the agent's layout would count as the agent's. Use a
@@ -214,6 +216,7 @@ Reusable workflow inputs:
 | `agent_ref` | no | `main` | Branch, tag or SHA of the agent code to run. GitHub gives a called workflow no reliable way to learn its own ref, so pass the same ref you use in `uses: …@<ref>`. Pin both to a release tag for stable behaviour. |
 | `agent_repository` | no | `7391997393/ai-review-agentt` | Repository holding the agent code |
 | `reopen_resolved_threads` | no | `false` | See [Review lifecycle](#review-lifecycle-duplicates-outdated-and-reopened-threads) |
+| `agent_logins` | no | `""` | Extra accounts that posted comments for the agent before, e.g. `github-actions[bot]` |
 | `log_level` | no | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 
 The reusable workflow also:
@@ -250,6 +253,7 @@ Every setting comes from environment variables (`src/config.py`). See `.env.exam
 | `PR_NUMBER` | yes* | | Pull request number (*read from `GITHUB_EVENT_PATH` when unset) |
 | `MAX_REVIEW_CONTEXT_CHARS` | no | `120000` | Size limit of the context sent to the model |
 | `REOPEN_RESOLVED_THREADS` | no | `false` | Reopen resolved AI threads that are reported again |
+| `AGENT_LOGINS` | no | | Comma-separated extra accounts whose AI-format threads count as the agent's own |
 | `GITHUB_MCP_COMMAND` | no | `docker` | `docker`, or the path of a local `github-mcp-server` binary |
 | `GITHUB_MCP_IMAGE` | no | `ghcr.io/github/github-mcp-server:v2.0.3` | MCP server image |
 | `LOG_LEVEL` | no | `INFO` | Log level |

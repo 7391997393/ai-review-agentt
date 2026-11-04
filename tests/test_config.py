@@ -15,6 +15,7 @@ ENV = (
     "GITHUB_MCP_IMAGE",
     "GITHUB_OWNER",
     "GITHUB_REPO",
+    "AGENT_LOGINS",
 )
 
 
@@ -69,3 +70,9 @@ def test_invalid_integers_are_rejected_clearly(monkeypatch, value):
     monkeypatch.setenv("MAX_REVIEW_CONTEXT_CHARS", value)
     with pytest.raises(RuntimeError, match="MAX_REVIEW_CONTEXT_CHARS"):
         Settings.from_env()
+
+
+def test_agent_logins_are_parsed(monkeypatch):
+    set_required(monkeypatch)
+    monkeypatch.setenv("AGENT_LOGINS", " github-actions[bot] , ,old-bot ")
+    assert Settings.from_env().extra_agent_logins == ("github-actions[bot]", "old-bot")

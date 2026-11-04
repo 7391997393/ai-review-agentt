@@ -29,6 +29,13 @@ on:
         required: false
         type: boolean
         default: false
+      agent_logins:
+        description: >-
+          Comma-separated extra accounts that posted AI comments for this agent before
+          (e.g. github-actions[bot]); their AI-format threads count as the agent's own.
+        required: false
+        type: string
+        default: ""
       log_level:
         required: false
         type: string
@@ -117,5 +124,6 @@ jobs:
           GITHUB_REPO: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REOPEN_RESOLVED_THREADS: ${{ inputs.reopen_resolved_threads }}
+          AGENT_LOGINS: ${{ inputs.agent_logins }}
           LOG_LEVEL: ${{ inputs.log_level }}
         run: python main.py

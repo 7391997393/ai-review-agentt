@@ -40,6 +40,7 @@ class Settings:
     max_output_tokens: int = 8192
     reopen_resolved_threads: bool = False
     mcp_image: str = DEFAULT_MCP_IMAGE
+    extra_agent_logins: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -71,4 +72,7 @@ class Settings:
             max_output_tokens=_int_env("CG_MAX_OUTPUT_TOKENS", 8192),
             reopen_resolved_threads=_bool_env("REOPEN_RESOLVED_THREADS", False),
             mcp_image=os.getenv("GITHUB_MCP_IMAGE", "").strip() or DEFAULT_MCP_IMAGE,
+            extra_agent_logins=tuple(
+                login.strip() for login in os.getenv("AGENT_LOGINS", "").split(",") if login.strip()
+            ),
         )

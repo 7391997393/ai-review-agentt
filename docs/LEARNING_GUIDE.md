@@ -183,8 +183,9 @@ format.
 - **Finding key** = `file:line:normalised title`. The description is left out on
   purpose, so a reworded finding is still the same finding.
 - An **AI thread** is one whose *first* comment has the agent's format (hidden marker,
-  or the exact legacy `**SEVERITY — Category**` + `**Recommendation:**` layout) **and**
-  whose author is the token's account, known from GraphQL `viewer.login`. Other people's
+  or the legacy layout: a `**SEVERITY — Category**` header or bold title plus a
+  `**Recommendation:**` line) **and** whose author is the token's account (GraphQL
+  `viewer.login`) or one of the extra accounts in `AGENT_LOGINS`. Other people's
   threads are never resolved or reopened, and they never hide the agent's findings. When
   the account is unknown (GraphQL down), resolve and reopen are skipped entirely.
 - **Outdated AI threads** (the code under them changed) are **resolved**. The finding

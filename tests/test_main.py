@@ -293,6 +293,8 @@ async def test_async_main_fails_when_thread_resolution_fails(pipeline):
 
 
 async def test_async_main_reopens_only_when_enabled(pipeline, monkeypatch):
+    # The default must not depend on a variable exported in the caller's shell.
+    monkeypatch.delenv("REOPEN_RESOLVED_THREADS", raising=False)
     install, _ = pipeline
     thread = make_thread("R1", resolved=True, path="app.py", line=3, author="ai-bot")
     finding = make_finding(line=3, title="Hard-coded password")

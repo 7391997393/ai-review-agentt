@@ -287,7 +287,8 @@ async def test_connect_starts_pinned_image_with_limited_toolsets(settings, monke
         async def __aexit__(self, *exc):
             return None
 
-    monkeypatch.delenv("GITHUB_MCP_COMMAND", raising=False)
+    monkeypatch.setenv("GITHUB_MCP_COMMAND", "docker")
+    monkeypatch.setattr("src.mcp_github.shutil.which", lambda name: name)
     monkeypatch.setattr("src.mcp_github.stdio_client", FakeStdio)
     monkeypatch.setattr("src.mcp_github.ClientSession", FakeSession)
     client = GitHubMCPClient(settings)
@@ -374,3 +375,12 @@ async def test_without_extra_logins_older_bot_threads_are_left_alone(run):
     client = run([], threads=[make_thread("OLD-BOT", outdated=True, author="github-actions[bot]")])
     assert await main.async_main() == 0
     assert client.mutation_ids("resolveReviewThread") == []
+
+
+def test_http_client_loggers_are_quietened_including_httpx2(monkeypatch):
+    # A live run showed the HTTP client logging under the name "httpx2".
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    with patch("logging.basicConfig"):
+        main.configure_logging()
+    for name in ("httpx", "httpx2", "httpcore", "openai", "mcp"):
+        assert logging.getLogger(name).level == logging.WARNING

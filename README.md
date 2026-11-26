@@ -203,7 +203,7 @@ Set this up in the target repository:
 | Kind | Name | Value |
 |---|---|---|
 | Secret | `CG_API_KEY` | Capgemini Generative Engine API key |
-| Secret | `GH_PAT` | Token with **Pull requests: read and write** and **Contents: read** on the target repository |
+| Secret | `GH_PAT` | Token with **Pull requests: read and write** and **Contents: read and write** on the target repository (Contents write is needed only to resolve threads) |
 | Variable | `CG_MODEL` | e.g. `gpt-oss-120b` |
 | Variable | `CG_BASE_URL` | Optional; empty means the Capgemini default |
 
@@ -254,7 +254,7 @@ Every setting comes from environment variables (`src/config.py`). See `.env.exam
 | `MAX_REVIEW_CONTEXT_CHARS` | no | `120000` | Size limit of the context sent to the model |
 | `REOPEN_RESOLVED_THREADS` | no | `false` | Reopen resolved AI threads that are reported again |
 | `AGENT_LOGINS` | no | | Comma-separated extra accounts whose AI-format threads count as the agent's own |
-| `GITHUB_MCP_COMMAND` | no | `docker` | `docker`, or the path of a local `github-mcp-server` binary |
+| `GITHUB_MCP_COMMAND` | no | auto | Empty: Docker if installed, else `github-mcp-server` on PATH. Or `docker`, or the full path of the binary (see [docs/WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md)) |
 | `GITHUB_MCP_IMAGE` | no | `ghcr.io/github/github-mcp-server:v2.0.3` | MCP server image |
 | `LOG_LEVEL` | no | `INFO` | Log level |
 

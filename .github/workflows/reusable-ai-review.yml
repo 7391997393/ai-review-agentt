@@ -113,6 +113,23 @@ jobs:
         if: steps.guard.outputs.run == 'true'
         run: pip install -r requirements.txt
 
+      - name: Install GitHub MCP Server (standalone binary)
+        if: steps.guard.outputs.run == 'true'
+        env:
+          # Keep equal to DEFAULT_MCP_IMAGE in src/config.py (checked by a test).
+          MCP_VERSION: v2.0.3
+        run: |
+          set -euo pipefail
+          base="https://github.com/github/github-mcp-server/releases/download/${MCP_VERSION}"
+          dir="$RUNNER_TEMP/github-mcp-server"
+          mkdir -p "$dir"
+          cd "$dir"
+          curl -fsSL -O "$base/github-mcp-server_Linux_x86_64.tar.gz"
+          curl -fsSL -o checksums.txt "$base/github-mcp-server_${MCP_VERSION#v}_checksums.txt"
+          grep " github-mcp-server_Linux_x86_64.tar.gz\$" checksums.txt | sha256sum -c -
+          tar -xzf github-mcp-server_Linux_x86_64.tar.gz github-mcp-server
+          echo "GITHUB_MCP_COMMAND=$dir/github-mcp-server" >> "$GITHUB_ENV"
+
       - name: Run AI Code Review
         if: steps.guard.outputs.run == 'true'
         env:

@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -111,6 +113,55 @@ def _connection(data: Any, *path: str) -> dict[str, Any]:
     return node if isinstance(node, dict) else {}
 
 
+LOCAL_BINARY_NAME = "github-mcp-server"
+
+
+def resolve_mcp_launch(image: str) -> tuple[str, list[str]]:
+    """Decide how to start the MCP server: (command, args).
+
+    GITHUB_MCP_COMMAND selects the launcher:
+    - unset: Docker if it is installed (original behaviour); otherwise a
+      `github-mcp-server` binary found on PATH.
+    - "docker": run `image` in Docker.
+    - anything else: path or name of a local github-mcp-server binary. It must
+      exist, so a wrong path fails here with a clear message instead of an
+      obscure subprocess error.
+    """
+    raw = os.getenv("GITHUB_MCP_COMMAND", "").strip().strip("\"'")
+    if not raw:
+        if shutil.which("docker") is None and shutil.which(LOCAL_BINARY_NAME):
+            raw = LOCAL_BINARY_NAME
+        else:
+            raw = "docker"
+
+    if raw.lower() == "docker":
+        docker = shutil.which("docker")
+        if docker is None:
+            raise GitHubError(
+                "GITHUB_MCP_COMMAND is 'docker' but Docker is not installed. Set "
+                "GITHUB_MCP_COMMAND to the full path of the github-mcp-server binary."
+            )
+        return docker, [
+            "run",
+            "--rm",
+            "-i",
+            "-e",
+            "GITHUB_PERSONAL_ACCESS_TOKEN",
+            "-e",
+            "GITHUB_TOOLSETS",
+            image,
+        ]
+
+    resolved = shutil.which(raw)
+    if resolved is None:
+        raise GitHubError(
+            f"GitHub MCP server binary not found: {raw!r}. Set GITHUB_MCP_COMMAND to the "
+            "full path of github-mcp-server (for example "
+            r"C:\tools\github-mcp-server\github-mcp-server.exe)."
+        )
+    return resolved, ["stdio", f"--toolsets={MCP_TOOLSETS}"]
+
+
 class GitHubMCPClient:
     """Small wrapper around the official GitHub MCP Server and GraphQL API."""
 
@@ -124,24 +175,10 @@ class GitHubMCPClient:
 
     # -- lifecycle ---------------------------------------------------------
 
-    async def connect(self) -> None:
-        command = os.getenv("GITHUB_MCP_COMMAND", "docker")
-        if command == "docker":
-            args = [
-                "run",
-                "--rm",
-                "-i",
-                "-e",
-                "GITHUB_PERSONAL_ACCESS_TOKEN",
-                "-e",
-                "GITHUB_TOOLSETS",
-                self.settings.mcp_image,
-            ]
-        else:
-            # A locally installed github-mcp-server binary.
-            args = ["stdio", f"--toolsets={MCP_TOOLSETS}"]
-
-        server = StdioServerParameters(
+    def server_parameters(self) -> StdioServerParameters:
+        """How to start the GitHub MCP server (Docker image or local binary)."""
+        command, args = resolve_mcp_launch(self.settings.mcp_image)
+        return StdioServerParameters(
             command=command,
             args=args,
             env={
@@ -149,7 +186,10 @@ class GitHubMCPClient:
                 "GITHUB_TOOLSETS": MCP_TOOLSETS,
             },
         )
-        logger.info("Starting GitHub MCP server (%s)", args[-1] if command == "docker" else command)
+
+    async def connect(self) -> None:
+        server = self.server_parameters()
+        logger.info("Starting GitHub MCP server (%s)", Path(server.command).name)
 
         self._stdio_context = stdio_client(server)
         read, write = await self._stdio_context.__aenter__()
@@ -439,4 +479,4 @@ class GitHubMCPClient:
         return await self._set_thread_resolution(thread_id, resolve=False)
 
 
-__all__ = ["GitHubError", "GitHubMCPClient", "PullRequestData"]
+__all__ = ["GitHubError", "GitHubMCPClient", "PullRequestData", "resolve_mcp_launch"]

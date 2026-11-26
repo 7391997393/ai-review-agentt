@@ -22,7 +22,9 @@ from src.schemas import Finding
 from src.thread_resolver import (
     AgentLogins,
     existing_thread_keys,
+    existing_thread_slots,
     finding_key,
+    finding_slot,
     format_inline_comment,
     select_threads_to_reopen,
     select_threads_to_resolve,
@@ -195,17 +197,25 @@ def plan_review(
     changed_files: list[dict[str, Any]],
     thread_keys: set[str],
     summary_fingerprints: set[str],
+    thread_slots: set[str] | None = None,
 ) -> ReviewPlan:
-    """Split findings into inline / summary-only / duplicate."""
+    """Split findings into inline / summary-only / duplicate.
+
+    A finding is a duplicate when an AI thread already has its exact key, or
+    already covers the same file, line and category (the model may reword the
+    title between runs).
+    """
     plan = ReviewPlan()
     files = index_changed_files(changed_files)
     seen: set[str] = set()
+    slots = thread_slots or set()
 
     for finding in findings:
         target = validate_finding_against_changed_files(finding, files)
         if target.ok and target.path:
             key = finding_key(target.path, finding.line, finding.title)
-            if key in thread_keys or key in seen:
+            slot = finding_slot(target.path, finding.line, finding.category)
+            if key in thread_keys or key in seen or slot in slots:
                 plan.duplicates.append(finding)
                 continue
             seen.add(key)
@@ -330,6 +340,9 @@ async def run_review(github: GitHubMCPClient, settings: Settings, pull_number: i
         data.changed_files,
         existing_thread_keys(threads, exclude_ids=report.resolved_threads, agent_login=agent_login),
         await load_summary_fingerprints(github, settings, pull_number, agent_login),
+        existing_thread_slots(
+            threads, exclude_ids=report.resolved_threads, agent_login=agent_login
+        ),
     )
     report.duplicates = len(plan.duplicates)
     report.summary_only = len(plan.summary_only)
@@ -386,7 +399,7 @@ def configure_logging() -> None:
     if requested != level:
         logger.warning("Unknown LOG_LEVEL %r; using INFO", requested)
     # Request logging from HTTP libraries is noise and could include headers.
-    for noisy in ("httpx", "httpcore", "openai", "mcp"):
+    for noisy in ("httpx", "httpx2", "httpcore", "openai", "mcp"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

@@ -237,3 +237,28 @@ def test_threads_from_mcp_response_shapes():
     assert pseudo[0]["id"] is None
 
     assert threads_from_mcp_response("unexpected text") is None
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        "SQL injection vulnerability in find_user",  # backticks dropped (seen in a live run)
+        "SQL injection vulnerability in `find_user`.",
+        "sql-injection  vulnerability in find_user!",
+    ],
+)
+def test_finding_key_ignores_punctuation_differences(other):
+    base = "SQL injection vulnerability in `find_user`"
+    assert finding_key("demo/users.py", 9, base) == finding_key("demo/users.py", 9, other)
+
+
+def test_finding_key_treats_unicode_hyphen_like_ascii_hyphen():
+    assert finding_key("a.py", 5, "Hard\u2011coded admin password") == finding_key(
+        "a.py", 5, "Hard-coded admin password"
+    )
+
+
+def test_finding_key_still_distinguishes_different_findings():
+    assert finding_key("a.py", 5, "SQL injection") != finding_key("a.py", 5, "Hard-coded secret")
+    assert finding_key("a.py", 5, "SQL injection") != finding_key("a.py", 6, "SQL injection")
+    assert finding_key("a.py", 5, "SQL injection") != finding_key("b.py", 5, "SQL injection")

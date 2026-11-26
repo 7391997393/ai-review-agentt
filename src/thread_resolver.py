@@ -61,8 +61,16 @@ def sanitize_title(title: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
+_NON_WORD_RE = re.compile(r"[\W_]+")
+
+
 def normalize_title(title: str) -> str:
-    return _WHITESPACE_RE.sub(" ", sanitize_title(title)).strip().lower()
+    """Comparison form of a title: case, punctuation and spacing are ignored.
+
+    A model that writes "in `find_user`" one run and "in find_user" the next
+    (or "Hard-coded" versus "Hard\u2011coded") is still reporting the same issue.
+    """
+    return _NON_WORD_RE.sub(" ", sanitize_title(title)).strip().casefold()
 
 
 def finding_key(path: str | None, line: int | None, title: str) -> str:
@@ -73,6 +81,18 @@ def finding_key(path: str | None, line: int | None, title: str) -> str:
     """
     line_part = "" if line is None else str(int(line))
     return f"{path or ''}:{line_part}:{normalize_title(title)}"
+
+
+def finding_slot(path: str | None, line: int | None, category: str | None) -> str:
+    """Where a finding sits: file, line and category, ignoring the wording.
+
+    A model rewords titles from run to run ("Default admin password is empty" /
+    "ADMIN_PASSWORD defaults to empty string"). The title key alone then lets the
+    same issue be posted again on every run, so an open AI thread on the same
+    line and category also counts as "already reported".
+    """
+    line_part = "" if line is None else str(int(line))
+    return f"{path or ''}:{line_part}:{(category or '').strip().lower()}"
 
 
 def summary_fingerprint(finding: Finding) -> str:
@@ -131,6 +151,15 @@ def parse_comment_title(body: Any) -> str | None:
             candidate = text.strip("*").strip()
             if candidate:
                 return candidate
+    return None
+
+
+def parse_comment_category(body: Any) -> str | None:
+    """Category from the "**SEVERITY — Category**" header of an AI comment."""
+    for text in str(body or "").split("\n"):
+        match = LEGACY_HEADER_RE.match(text.strip())
+        if match:
+            return match.group(2).lower()
     return None
 
 
@@ -310,8 +339,22 @@ def existing_thread_keys(
     again. Resolved threads count as "already reported" by default, so a
     finding a reviewer resolved is not posted again on every push.
     """
+    keys = (
+        extract_thread_finding_key(thread)
+        for thread in _current_ai_threads(threads, exclude_ids, include_resolved, agent_login)
+    )
+    return {key for key in keys if key}
+
+
+def _current_ai_threads(
+    threads: Iterable[Any],
+    exclude_ids: Iterable[str],
+    include_resolved: bool,
+    agent_login: AgentLogins,
+) -> list[dict]:
+    """AI threads that still sit on current code (not outdated, not excluded)."""
     excluded = set(exclude_ids)
-    keys: set[str] = set()
+    current: list[dict] = []
     for thread in threads or []:
         if not isinstance(thread, dict) or is_outdated(thread):
             continue
@@ -319,12 +362,35 @@ def existing_thread_keys(
             continue
         if is_resolved(thread) and not include_resolved:
             continue
-        if not is_ai_review_thread(thread, agent_login):
-            continue
-        key = extract_thread_finding_key(thread)
-        if key:
-            keys.add(key)
-    return keys
+        if is_ai_review_thread(thread, agent_login):
+            current.append(thread)
+    return current
+
+
+def extract_thread_slot(thread: dict) -> str | None:
+    comments = thread_comments(thread)
+    path, line = thread.get("path"), thread_line(thread)
+    category = parse_comment_category(comments[0].get("body")) if comments else None
+    if not path or not line or not category:
+        return None
+    try:
+        return finding_slot(path, int(line), category)
+    except (TypeError, ValueError):
+        return None
+
+
+def existing_thread_slots(
+    threads: Iterable[Any],
+    exclude_ids: Iterable[str] = (),
+    include_resolved: bool = True,
+    agent_login: AgentLogins = None,
+) -> set[str]:
+    """Slots (file, line, category) already covered by an AI thread on current code."""
+    slots = (
+        extract_thread_slot(thread)
+        for thread in _current_ai_threads(threads, exclude_ids, include_resolved, agent_login)
+    )
+    return {slot for slot in slots if slot}
 
 
 def open_thread_keys(
@@ -391,8 +457,12 @@ __all__ = [
     "AI_COMMENT_MARKER",
     "LEGACY_HEADER_RE",
     "existing_thread_keys",
+    "existing_thread_slots",
     "extract_thread_finding_key",
+    "extract_thread_slot",
     "finding_key",
+    "finding_slot",
+    "parse_comment_category",
     "format_inline_comment",
     "is_ai_comment_body",
     "is_ai_review_thread",

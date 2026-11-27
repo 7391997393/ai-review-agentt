@@ -46,3 +46,12 @@ def test_apm_manifest_matches_project_and_uses_no_docker():
     assert f"name: {project['name']}" in manifest
     assert "docker" not in manifest.lower()
     assert "${env:GITHUB_TOKEN}" in manifest  # the token is referenced, never written down
+
+
+def test_apm_agent_is_in_a_folder_apm_recognises():
+    # APM only scans .apm/agents/ (plural) for files named <name>.agent.md.
+    agents = sorted((ROOT / ".apm" / "agents").glob("*.agent.md"))
+    assert agents, "no .apm/agents/*.agent.md found"
+    text = agents[0].read_text(encoding="utf-8")
+    assert text.startswith("---\n") and "\nname: " in text and "\ndescription: " in text
+    assert not (ROOT / ".apm" / "agent").exists()  # the singular folder is ignored by APM

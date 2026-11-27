@@ -20,7 +20,14 @@ from src.thread_resolver import (
     summary_fingerprint,
     summary_marker,
 )
-from tests.conftest import AI_BODY, PATCH, graphql_mutation_response, make_finding, make_thread
+from tests.conftest import (
+    AGENT,
+    AI_BODY,
+    PATCH,
+    graphql_mutation_response,
+    make_finding,
+    make_thread,
+)
 
 
 class TransportFakeClient(GitHubMCPClient):
@@ -346,3 +353,61 @@ def test_get_pr_number(monkeypatch, tmp_path):
     event.write_text('{"number": 34}', encoding="utf-8")
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
     assert main.get_pr_number() == 34
+
+
+# --- Reworded findings (seen in a live run: same issue, new title every run) -------------
+
+_AI_AT_LINE_3 = (
+    "**LOW — Standards**\n\n**Default admin password is empty string**\n\n"
+    "Explanation.\n\n**Recommendation:** Fix it."
+)
+
+
+def _plan_with_existing(findings, threads):
+    from src.thread_resolver import existing_thread_keys, existing_thread_slots
+
+    return main.plan_review(
+        findings,
+        FILES,
+        existing_thread_keys(threads, agent_login=AGENT),
+        set(),
+        existing_thread_slots(threads, agent_login=AGENT),
+    )
+
+
+def test_reworded_finding_on_same_line_and_category_is_a_duplicate():
+    thread = make_thread("OPEN", path="app.py", line=3, body=_AI_AT_LINE_3)
+    reworded = make_finding(
+        line=3, category="standards", title="ADMIN_PASSWORD defaults to empty string"
+    )
+
+    plan = _plan_with_existing([reworded], [thread])
+
+    assert plan.inline == [] and plan.duplicates == [reworded]
+
+
+def test_other_category_or_line_on_a_covered_line_is_still_posted():
+    thread = make_thread("OPEN", path="app.py", line=3, body=_AI_AT_LINE_3)
+    other_category = make_finding(line=3, category="security", title="Weak default credential")
+    other_line = make_finding(line=2, category="standards", title="Another standards issue")
+
+    plan = _plan_with_existing([other_category, other_line], [thread])
+
+    assert [f.title for f, _ in plan.inline] == [other_category.title, other_line.title]
+    assert plan.duplicates == []
+
+
+def test_resolved_thread_still_covers_its_slot_but_outdated_one_does_not():
+    resolved = make_thread("R", resolved=True, path="app.py", line=3, body=_AI_AT_LINE_3)
+    outdated = make_thread("O", outdated=True, path="app.py", line=3, body=_AI_AT_LINE_3)
+    finding = make_finding(line=3, category="standards", title="Totally new wording")
+
+    assert _plan_with_existing([finding], [resolved]).duplicates == [finding]
+    assert _plan_with_existing([finding], [outdated]).inline != []
+
+
+def test_human_thread_does_not_cover_a_slot():
+    human = make_thread("H", path="app.py", line=3, author="human", body=_AI_AT_LINE_3)
+    finding = make_finding(line=3, category="standards", title="Totally new wording")
+
+    assert _plan_with_existing([finding], [human]).inline != []

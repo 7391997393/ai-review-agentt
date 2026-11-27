@@ -1,0 +1,28 @@
+name: ai-review-agent
+# Keep equal to `version` in pyproject.toml (checked by tests/test_project_config.py).
+version: "0.2.0"
+description: >-
+  Reusable AI pull request review agent: reads a PR through the GitHub MCP Server,
+  reviews it with Capgemini Generative Engine (gpt-oss-120b), posts inline comments,
+  skips duplicates, and resolves or reopens its own review threads.
+
+scripts:
+  verify: python verify_setup.py
+  review: python main.py
+  test: python -m pytest
+  lint: ruff check . && ruff format --check .
+
+dependencies:
+  mcp:
+    # Standalone GitHub MCP Server binary, no container runtime. Install v2.0.3 and put it on PATH,
+    # or set GITHUB_MCP_COMMAND for the agent itself. See docs/WINDOWS_SETUP.md.
+    - name: github-mcp-server
+      registry: false
+      transport: stdio
+      command: github-mcp-server
+      args:
+        - stdio
+        - --toolsets=repos,pull_requests,issues
+      env:
+        GITHUB_PERSONAL_ACCESS_TOKEN: ${env:GITHUB_TOKEN}
+        GITHUB_TOOLSETS: repos,pull_requests,issues

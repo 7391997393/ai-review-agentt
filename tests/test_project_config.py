@@ -36,3 +36,13 @@ def test_workflow_uses_standalone_mcp_binary_matching_pinned_version():
     assert "GITHUB_MCP_COMMAND=" in workflow
     assert "sha256sum -c" in workflow  # the download is verified
     assert "docker" not in workflow.lower()
+
+
+def test_apm_manifest_matches_project_and_uses_no_docker():
+    manifest = (ROOT / "apm.yml").read_text(encoding="utf-8")
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+
+    assert f'version: "{project["version"]}"' in manifest
+    assert f"name: {project['name']}" in manifest
+    assert "docker" not in manifest.lower()
+    assert "${env:GITHUB_TOKEN}" in manifest  # the token is referenced, never written down
